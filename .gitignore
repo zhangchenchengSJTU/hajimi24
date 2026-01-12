@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+.tmp.drivedownload
+.tmp.driveupload
