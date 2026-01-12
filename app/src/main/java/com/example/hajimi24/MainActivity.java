@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -27,6 +28,7 @@ public class MainActivity extends AppCompatActivity {
     private DrawerLayout drawerLayout;
     private NavigationView navigationView;
     private TextView tvScore, tvTimer, tvAvgTime;
+    private TextView tvStatus;
     private Button[] cardButtons = new Button[5];
     private Button btnAdd, btnSub, btnMul, btnDiv;
     private Button btnUndo, btnReset, btnRedo, btnMenu;
@@ -69,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
         tvScore = findViewById(R.id.tv_score);
         tvTimer = findViewById(R.id.tv_timer);
         tvAvgTime = findViewById(R.id.tv_avg_time);
+        tvStatus = findViewById(R.id.tv_status);
 
         cardButtons[0] = findViewById(R.id.card_1);
         cardButtons[1] = findViewById(R.id.card_2);
@@ -188,22 +191,58 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // ... 在 MainActivity 类中 ...
+
     private void syncFromGitHub() {
-        Toast.makeText(this, "正在连接 GitHub...", Toast.LENGTH_SHORT).show();
+        // 1. 获取菜单项引用 (ID 999 对应之前的 "从 GitHub 更新题库")
+        Menu menu = navigationView.getMenu();
+        MenuItem updateItem = menu.findItem(999);
+
+        // 2. 更改状态为“连接中”
+        if (updateItem != null) {
+            updateItem.setTitle("⏳ 正在连接 GitHub...");
+            // 如果希望菜单保持打开状态看进度，通常不需要做额外操作，
+            // 但如果用户误触关闭了抽屉，进度仍在后台继续。
+        }
+
         repository.syncFromGitHub(new ProblemRepository.SyncCallback() {
+            @Override
+            public void onProgress(String fileName, int current, int total) {
+                runOnUiThread(() -> {
+                    // 3. 实时更新菜单文字
+                    if (updateItem != null) {
+                        updateItem.setTitle("⬇️ 下载中: " + current + "/" + total);
+                    }
+                });
+            }
+
             @Override
             public void onSuccess(int count) {
                 runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "更新完成，下载了 " + count + " 个文件", Toast.LENGTH_LONG).show();
-                    initSidebar();
+                    // 4. 完成后恢复文字或显示结果
+                    if (updateItem != null) {
+                        updateItem.setTitle("✅ 更新完成 (" + count + ")");
+                        // 2秒后恢复成原始文字
+                        new Handler().postDelayed(() ->
+                                updateItem.setTitle("☁️ 从 GitHub 更新题库"), 2000);
+                    }
+                    Toast.makeText(MainActivity.this, "更新完成！共下载 " + count + " 个文件", Toast.LENGTH_LONG).show();
+                    initSidebar(); // 刷新文件列表
                 });
             }
+
             @Override
             public void onFail(String error) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新失败: " + error, Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> {
+                    if (updateItem != null) {
+                        updateItem.setTitle("❌ 更新失败，点击重试");
+                    }
+                    Toast.makeText(MainActivity.this, "错误: " + error, Toast.LENGTH_LONG).show();
+                });
             }
         });
     }
+
 
     private void loadProblemSet(String fileName) {
         try {

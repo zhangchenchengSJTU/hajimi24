@@ -1,10 +1,8 @@
 package com.example.hajimi24;
 
 import android.content.Context;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -23,39 +21,64 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ProblemRepository {
-    private static final String GITHUB_API_URL = "https://api.github.com/repos/zhangchenchengSJTU/LA-2025-2026-1--MATH1205H-04/contents/assets/24";
+    // 确保 URL 是正确的 data 目录
+    private static final String GITHUB_API_URL = "https://api.github.com/repos/zhangchenchengSJTU/hajimi24/contents/data";
     private Context context;
 
     public ProblemRepository(Context context) {
         this.context = context;
     }
 
+    // --- 修改 1: 更新接口，增加进度回调 ---
     public interface SyncCallback {
+        // 新增：汇报进度 (文件名, 当前第几个, 总共几个)
+        void onProgress(String fileName, int current, int total);
         void onSuccess(int count);
         void onFail(String error);
     }
 
-    // 从 GitHub 同步
+    // --- 修改 2: 更新同步逻辑，计算总量并汇报进度 ---
     public void syncFromGitHub(SyncCallback callback) {
         new Thread(() -> {
             try {
+                // 第一步：先获取文件列表
                 String jsonStr = downloadString(GITHUB_API_URL);
-                if (jsonStr == null) throw new Exception("无法获取列表");
+                if (jsonStr == null) throw new Exception("无法连接到 GitHub，请检查网络");
+
                 JSONArray jsonArray = new JSONArray(jsonStr);
-                int downloadCount = 0;
+                List<JSONObject> taskList = new ArrayList<>();
+
+                // 第二步：筛选出所有 .txt 文件，计算总数
                 for (int i = 0; i < jsonArray.length(); i++) {
                     JSONObject item = jsonArray.getJSONObject(i);
                     String name = item.getString("name");
-                    String downloadUrl = item.getString("download_url");
                     if (name.endsWith(".txt")) {
-                        String content = downloadString(downloadUrl);
-                        if (content != null) {
-                            saveToInternalStorage(name, content);
-                            downloadCount++;
-                        }
+                        taskList.add(item);
                     }
                 }
-                callback.onSuccess(downloadCount);
+
+                int total = taskList.size();
+                int successCount = 0;
+
+                // 第三步：逐个下载，并实时汇报进度
+                for (int i = 0; i < total; i++) {
+                    JSONObject item = taskList.get(i);
+                    String name = item.getString("name");
+                    String downloadUrl = item.getString("download_url");
+
+                    // -> 关键点：调用 onProgress 告诉界面当前状态
+                    callback.onProgress(name, i + 1, total);
+
+                    String content = downloadString(downloadUrl);
+                    if (content != null) {
+                        saveToInternalStorage(name, content);
+                        successCount++;
+                    }
+                }
+
+                // 全部完成后调用 onSuccess
+                callback.onSuccess(successCount);
+
             } catch (Exception e) {
                 e.printStackTrace();
                 callback.onFail(e.getMessage());
@@ -63,7 +86,9 @@ public class ProblemRepository {
         }).start();
     }
 
-    // 加载题库
+    // ... (剩下的 loadProblemSet, getAvailableFiles, downloadString 等方法保持不变) ...
+    // 为了完整性，这里列出没变的方法，你可以直接保留你原来的代码
+
     public List<Problem> loadProblemSet(String fileName) throws Exception {
         List<Problem> problems = new ArrayList<>();
         InputStream is = getFileInputStream(fileName);
@@ -106,7 +131,6 @@ public class ProblemRepository {
         return sortedFiles;
     }
 
-    // --- 私有辅助方法 ---
     private String downloadString(String urlStr) throws Exception {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
