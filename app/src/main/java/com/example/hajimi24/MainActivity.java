@@ -11,21 +11,20 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.google.android.material.navigation.NavigationView;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
     private DrawerLayout drawerLayout;
-    private TextView tvScore, tvTimer, tvAvgTime, tvMessage; // 新增 tvMessage
+    private TextView tvScore, tvTimer, tvAvgTime, tvMessage;
     private Button[] cardButtons = new Button[5];
     private Button btnAdd, btnSub, btnMul, btnDiv;
     private Button btnUndo, btnReset, btnRedo, btnMenu;
@@ -86,8 +85,6 @@ public class MainActivity extends AppCompatActivity {
         tvScore = findViewById(R.id.tv_score);
         tvTimer = findViewById(R.id.tv_timer);
         tvAvgTime = findViewById(R.id.tv_avg_time);
-
-        // 新增：绑定消息显示区域
         tvMessage = findViewById(R.id.tv_message_area);
 
         cardButtons[0] = findViewById(R.id.card_1);
@@ -146,7 +143,24 @@ public class MainActivity extends AppCompatActivity {
         gameTimer.start();
         resetSelection();
         refreshUI();
-        tvMessage.setText(""); // 清空提示区域
+        tvMessage.setText("");
+    }
+
+    // --- 修改点：辅助方法，将分数格式化为竖式显示 ---
+    private String formatFraction(Fraction f) {
+        String s = f.toString();
+        // 假设 Fraction.toString() 输出格式为 (分子)/分母 或 分子
+        if (s.contains("/")) {
+            int slashIdx = s.lastIndexOf("/");
+            String num = s.substring(0, slashIdx);
+            String den = s.substring(slashIdx + 1);
+            // 去除分子可能自带的括号 (3+2i) -> 3+2i
+            if (num.startsWith("(") && num.endsWith(")")) {
+                num = num.substring(1, num.length() - 1);
+            }
+            return num + "\n——\n" + den;
+        }
+        return s;
     }
 
     private void refreshUI() {
@@ -159,8 +173,9 @@ public class MainActivity extends AppCompatActivity {
             if (gameManager.currentNumberCount == 4 && i == 4) continue;
             if (gameManager.cardValues[i] != null) {
                 cardButtons[i].setVisibility(View.VISIBLE);
-                cardButtons[i].setText(gameManager.cardValues[i].toString());
-                cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC")); // 重置颜色，避免保留粉色
+                // --- 修改点：使用格式化方法显示复数分数 ---
+                cardButtons[i].setText(formatFraction(gameManager.cardValues[i]));
+                cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC"));
             } else {
                 cardButtons[i].setVisibility(View.INVISIBLE);
             }
@@ -198,18 +213,12 @@ public class MainActivity extends AppCompatActivity {
             gameManager.solvedCount++;
             gameTimer.stop();
             updateScoreBoard();
-            new Handler().postDelayed(() -> {
-                startNewGameLocal();
-            }, 1200);
+            new Handler().postDelayed(this::startNewGameLocal, 1200);
         }
     }
 
     private void selectCard(int index) {
-        for(Button b : cardButtons) {
-            // 保持粉色提示（如果已经变粉），否则灰色
-            // 简化逻辑：选中时覆盖一切颜色为绿色/灰色，点击重置或刷新UI时恢复
-            b.setBackgroundColor(Color.LTGRAY);
-        }
+        for(Button b : cardButtons) b.setBackgroundColor(Color.LTGRAY);
         selectedFirstIndex = index;
         if (index != -1) cardButtons[index].setBackgroundColor(Color.GREEN);
     }
@@ -263,74 +272,80 @@ public class MainActivity extends AppCompatActivity {
             tvMessage.setText("");
             Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show();
         });
-
         btnSkip.setOnClickListener(v -> startNewGameLocal());
 
-        // --- 核心修改逻辑 ---
+        // --- 核心修复逻辑 ---
 
-        // 1. 尝试：标粉色
+        // 1. 尝试：高亮下一步可行解
         btnTry.setOnClickListener(v -> {
             String sol = gameManager.getOrCalculateSolution();
             if (sol == null) {
                 tvMessage.setText("无解");
                 return;
             }
-            // 正则匹配第一个 "数字 运算 数字" 结构
-            Matcher m = Pattern.compile("(\\d+)\\s*[+\\-*/]\\s*(\\d+)").matcher(sol);
-            if (m.find()) {
-                String n1 = m.group(1);
-                String n2 = m.group(2); // 注意 group(2) 是第二个数字，group(1) 是第一个数字
-                // 这里的正则可能需调整：(\\d+)\\s*([+\\-*/])\\s*(\\d+) -> 1=num, 2=op, 3=num
-                // 修正 Pattern
-                m = Pattern.compile("(\\d+)\\s*[+\\-*/]\\s*(\\d+)").matcher(sol);
-                if(m.find()) {
-                    // Java Regex group 索引取决于括号。这里没有括号捕获 op，所以 1=num1, 2=num2
-                    // 稍等，为了稳妥，用带 op 的正则
+
+            int idx1 = -1, idx2 = -1;
+            String[] ops = {"+", "-", "*", "/"};
+            boolean found = false;
+
+            // 遍历所有卡片对，检查它们的组合是否出现在解中
+            for (int i = 0; i < 5; i++) {
+                if (gameManager.cardValues[i] == null) continue;
+                for (int j = 0; j < 5; j++) {
+                    if (i == j || gameManager.cardValues[j] == null) continue;
+
+                    String s1 = gameManager.cardValues[i].toString();
+                    String s2 = gameManager.cardValues[j].toString();
+
+                    for (String op : ops) {
+                        // Solver 生成的解格式严格为 (A+B)，因此检查字符串是否包含此片段
+                        String pattern = "(" + s1 + op + s2 + ")";
+                        if (sol.contains(pattern)) {
+                            idx1 = i;
+                            idx2 = j;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
                 }
+                if (found) break;
             }
 
-            // 重新编写更稳健的逻辑
-            Matcher mComplete = Pattern.compile("(\\d+)\\s*([+\\-*/])\\s*(\\d+)").matcher(sol);
-            if (mComplete.find()) {
-                String n1 = mComplete.group(1);
-                String n2 = mComplete.group(3);
-
-                boolean[] used = new boolean[5];
-                int idx1 = -1, idx2 = -1;
-
-                // 查找匹配的卡片索引
-                for (int i = 0; i < 5; i++) {
-                    if (gameManager.cardValues[i] != null && !used[i] && gameManager.cardValues[i].toString().equals(n1)) {
-                        idx1 = i; used[i] = true; break;
-                    }
-                }
-                for (int i = 0; i < 5; i++) {
-                    if (gameManager.cardValues[i] != null && !used[i] && gameManager.cardValues[i].toString().equals(n2)) {
-                        idx2 = i; used[i] = true; break;
-                    }
-                }
-
-                if (idx1 != -1 && idx2 != -1) {
-                    cardButtons[idx1].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
-                    cardButtons[idx2].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
-                } else {
-                    Toast.makeText(this, "请参考答案", Toast.LENGTH_SHORT).show();
-                }
+            if (found) {
+                // 粉色高亮
+                cardButtons[idx1].setBackgroundColor(Color.rgb(255, 192, 203));
+                cardButtons[idx2].setBackgroundColor(Color.rgb(255, 192, 203));
+                tvMessage.setText("试试这两个?");
+            } else {
+                tvMessage.setText("请参考答案");
             }
         });
 
-        // 2. 结构：显示 🐱
+        // 2. 结构：正确替换复数和分数
         btnHintStruct.setOnClickListener(v -> {
             String sol = gameManager.getOrCalculateSolution();
             if (sol != null) {
-                String struct = sol.replaceAll("\\d+", "🐱");
+                // 获取当前所有有效的数字字符串
+                List<String> currentNums = new ArrayList<>();
+                for (Fraction f : gameManager.cardValues) {
+                    if (f != null) currentNums.add(f.toString());
+                }
+
+                // 按长度从大到小排序，防止 "1" 误替换了 "12" 中的 1
+                Collections.sort(currentNums, (a, b) -> b.length() - a.length());
+
+                String struct = sol;
+                for (String numStr : currentNums) {
+                    struct = struct.replace(numStr, "🐱");
+                }
                 tvMessage.setText("结构: " + struct);
             } else {
                 tvMessage.setText("无解");
             }
         });
 
-        // 3. 答案：显示在下方文本框
+        // 3. 答案
         btnAnswer.setOnClickListener(v -> {
             String sol = gameManager.getOrCalculateSolution();
             tvMessage.setText("答案: " + (sol != null ? sol : "无解"));

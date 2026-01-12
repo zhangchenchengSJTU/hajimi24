@@ -52,7 +52,7 @@ public class Solver {
                 r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
 
                 // 除
-                if (b.val.num != 0) {
+                if (!b.val.isZero()) {
                     next.add(new Expr(a.val.divide(b.val), "("+a.str+"/"+b.str+")"));
                     r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
                 }
