@@ -21,7 +21,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ProblemRepository {
-    // 确保 URL 是正确的 data 目录
     private static final String GITHUB_API_URL = "https://api.github.com/repos/zhangchenchengSJTU/hajimi24/contents/data";
     private Context context;
 
@@ -29,26 +28,21 @@ public class ProblemRepository {
         this.context = context;
     }
 
-    // --- 修改 1: 更新接口，增加进度回调 ---
     public interface SyncCallback {
-        // 新增：汇报进度 (文件名, 当前第几个, 总共几个)
         void onProgress(String fileName, int current, int total);
         void onSuccess(int count);
         void onFail(String error);
     }
 
-    // --- 修改 2: 更新同步逻辑，计算总量并汇报进度 ---
     public void syncFromGitHub(SyncCallback callback) {
         new Thread(() -> {
             try {
-                // 第一步：先获取文件列表
                 String jsonStr = downloadString(GITHUB_API_URL);
                 if (jsonStr == null) throw new Exception("无法连接到 GitHub，请检查网络");
 
                 JSONArray jsonArray = new JSONArray(jsonStr);
                 List<JSONObject> taskList = new ArrayList<>();
 
-                // 第二步：筛选出所有 .txt 文件，计算总数
                 for (int i = 0; i < jsonArray.length(); i++) {
                     JSONObject item = jsonArray.getJSONObject(i);
                     String name = item.getString("name");
@@ -60,13 +54,11 @@ public class ProblemRepository {
                 int total = taskList.size();
                 int successCount = 0;
 
-                // 第三步：逐个下载，并实时汇报进度
                 for (int i = 0; i < total; i++) {
                     JSONObject item = taskList.get(i);
                     String name = item.getString("name");
                     String downloadUrl = item.getString("download_url");
 
-                    // -> 关键点：调用 onProgress 告诉界面当前状态
                     callback.onProgress(name, i + 1, total);
 
                     String content = downloadString(downloadUrl);
@@ -75,8 +67,6 @@ public class ProblemRepository {
                         successCount++;
                     }
                 }
-
-                // 全部完成后调用 onSuccess
                 callback.onSuccess(successCount);
 
             } catch (Exception e) {
@@ -85,9 +75,6 @@ public class ProblemRepository {
             }
         }).start();
     }
-
-    // ... (剩下的 loadProblemSet, getAvailableFiles, downloadString 等方法保持不变) ...
-    // 为了完整性，这里列出没变的方法，你可以直接保留你原来的代码
 
     public List<Problem> loadProblemSet(String fileName) throws Exception {
         List<Problem> problems = new ArrayList<>();
@@ -109,7 +96,9 @@ public class ProblemRepository {
                 String[] rawNums = m.group(1).split(",");
                 List<Fraction> fracs = new ArrayList<>();
                 for (String s : rawNums) fracs.add(Fraction.parse(s.trim().replace("\'", "")));
-                if (fracs.size() == 4 || fracs.size() == 5) {
+
+                // --- 修改点：允许 3 到 5 个数字 ---
+                if (fracs.size() >= 3 && fracs.size() <= 5) {
                     problems.add(new Problem(fracs, parts[1].trim()));
                 }
             }
@@ -118,6 +107,7 @@ public class ProblemRepository {
         return problems;
     }
 
+    // ... (以下方法保持不变，省略以节省篇幅，请保留原文件中的实现) ...
     public List<String> getAvailableFiles() {
         Set<String> fileSet = new HashSet<>();
         try {

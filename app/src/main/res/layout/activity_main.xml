@@ -7,7 +7,6 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <!-- 1. 主界面内容 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -16,7 +15,6 @@
         android:paddingEnd="16dp"
         android:paddingBottom="30dp">
 
-        <!-- 顶部菜单按钮 -->
         <Button
             android:id="@+id/btn_menu"
             android:layout_width="wrap_content"
@@ -26,7 +24,6 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
-        <!-- 顶部右侧分数栏 -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -36,21 +33,18 @@
             app:layout_constraintTop_toTopOf="@+id/btn_menu"
             app:layout_constraintBottom_toBottomOf="@+id/btn_menu">
 
-            <!-- 1. 新增：为了满足 Java 代码对 R.id.tv_status 的引用，加一个空的 View -->
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
 
-            <!-- 2. 修正：原本的 TextView 只保留 tv_score -->
             <TextView
                 android:id="@+id/tv_score"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="已解: 0"
                 android:textSize="16sp" />
-
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -73,7 +67,6 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 卡片区域 -->
         <GridLayout
             android:id="@+id/grid_cards"
             android:layout_width="wrap_content"
@@ -92,7 +85,6 @@
             <Button android:id="@+id/card_5" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
         </GridLayout>
 
-        <!-- 运算符 -->
         <LinearLayout
             android:id="@+id/layout_ops"
             android:layout_width="wrap_content"
@@ -109,7 +101,6 @@
             <Button android:id="@+id/btn_op_div" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="÷" android:textSize="28sp"/>
         </LinearLayout>
 
-        <!-- 撤销/重做/恢复 -->
         <LinearLayout
             android:id="@+id/layout_mid_actions"
             android:layout_width="wrap_content"
@@ -125,7 +116,21 @@
             <Button android:id="@+id/btn_redo" android:text="恢复" android:layout_width="100dp" android:layout_height="wrap_content"/>
         </LinearLayout>
 
-        <!-- 底部功能键 -->
+        <!-- 新增：显示答案和结构的文本区域 -->
+        <TextView
+            android:id="@+id/tv_message_area"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#333333"
+            android:gravity="center"
+            app:layout_constraintTop_toBottomOf="@+id/layout_mid_actions"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintBottom_toTopOf="@+id/layout_bottom" />
+
         <LinearLayout
             android:id="@+id/layout_bottom"
             android:layout_width="match_parent"
@@ -143,7 +148,6 @@
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- 2. 侧边栏：这里加入了 app:headerLayout 属性 -->
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view"
         android:layout_width="wrap_content"
