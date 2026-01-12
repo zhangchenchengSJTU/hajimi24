@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingTop="50dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="30dp">
+
+        <!-- 1. 顶部信息栏 (保持不动) -->
+        <Button
+            android:id="@+id/btn_menu"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="☰ 模式: 随机"
+            android:textSize="14sp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/btn_menu"
+            app:layout_constraintBottom_toBottomOf="@+id/btn_menu">
+
+            <TextView
+                android:id="@+id/tv_score"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="已解: 0"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:id="@+id/tv_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0s"
+                    android:textSize="16sp"
+                    android:layout_marginEnd="10dp"/>
+                <TextView
+                    android:id="@+id/tv_avg_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="平均: 0s"
+                    android:textSize="16sp"
+                    android:textColor="#666666"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 2. 卡片区域 -->
+        <GridLayout
+            android:id="@+id/grid_cards"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:columnCount="2"
+            android:rowCount="3"
+            android:layout_marginTop="120dp"
+            app:layout_constraintTop_toBottomOf="@+id/btn_menu"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <!-- 增加卡片 5，初始隐藏 -->
+            <Button android:id="@+id/card_1" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+            <Button android:id="@+id/card_2" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+            <Button android:id="@+id/card_3" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+            <Button android:id="@+id/card_4" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+            <Button android:id="@+id/card_5" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+        </GridLayout>
+
+
+        <!-- 3. 运算符 -->
+        <LinearLayout
+            android:id="@+id/layout_ops"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="30dp"
+            app:layout_constraintTop_toBottomOf="@+id/grid_cards"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <Button android:id="@+id/btn_op_add" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="+" android:textSize="28sp"/>
+            <Button android:id="@+id/btn_op_sub" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="-" android:textSize="28sp"/>
+            <Button android:id="@+id/btn_op_mul" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="×" android:textSize="28sp"/>
+            <Button android:id="@+id/btn_op_div" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="÷" android:textSize="28sp"/>
+        </LinearLayout>
+
+        <!-- 4. 撤销/重做/恢复 -->
+        <LinearLayout
+            android:id="@+id/layout_mid_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="20dp"
+            app:layout_constraintTop_toBottomOf="@+id/layout_ops"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <Button android:id="@+id/btn_undo" android:text="撤销" android:layout_width="100dp" android:layout_height="wrap_content" android:layout_marginEnd="5dp"/>
+            <Button android:id="@+id/btn_reset" android:text="重做" android:layout_width="100dp" android:layout_height="wrap_content" android:layout_marginEnd="5dp"/>
+            <Button android:id="@+id/btn_redo" android:text="恢复" android:layout_width="100dp" android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <!-- 5. 底部功能键 (贴底) -->
+        <LinearLayout
+            android:id="@+id/layout_bottom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="5"
+            app:layout_constraintBottom_toBottomOf="parent">
+
+            <Button android:id="@+id/btn_try" android:text="尝试" android:textColor="#0066AA" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" style="?android:attr/buttonBarButtonStyle" android:textSize="12sp"/>
+            <Button android:id="@+id/btn_hint_struct" android:text="结构" android:textColor="#AA6600" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" style="?android:attr/buttonBarButtonStyle" android:textSize="12sp"/>
+            <Button android:id="@+id/btn_answer" android:text="答案" android:textColor="#CC0000" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" style="?android:attr/buttonBarButtonStyle" android:textSize="12sp"/>
+            <Button android:id="@+id/btn_share" android:text="分享" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" style="?android:attr/buttonBarButtonStyle" android:textSize="12sp"/>
+            <Button android:id="@+id/btn_skip" android:text="跳过" android:textColor="#228B22" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" style="?android:attr/buttonBarButtonStyle" android:textSize="12sp"/>
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:fitsSystemWindows="true" />
+
+</androidx.drawerlayout.widget.DrawerLayout>
