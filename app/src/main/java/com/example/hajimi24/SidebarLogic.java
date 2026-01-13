@@ -64,7 +64,6 @@ public class SidebarLogic {
         // --- 新增：“模式设定”入口 ---
         menu.add("模式设定").setOnMenuItemClickListener(item -> {
             showModeSettingsDialog();
-            // 点击设定项不关闭抽屉，方便用户查看结果
             return true;
         });
 

@@ -6,11 +6,15 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
+import android.text.Html;
+
 import android.text.Spanned;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.util.Collections;
+import java.util.Arrays;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.GravityCompat;
@@ -45,11 +49,21 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         repository = new ProblemRepository(this);
         gameManager = new GameManager();
+
+        try {
+            List<String> files = repository.getAvailableFiles();
+            if (files != null && !files.isEmpty()) {
+                gameManager.setProblemSet(repository.loadProblemSet(files.get(0)));
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+
         initViews();
         initHelpers();
         initListeners();
+
         gameStartTime = System.currentTimeMillis();
         switchToRandomMode(4);
     }
@@ -60,11 +74,14 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onRandomMode(int count) { switchToRandomMode(count); }
             @Override public void onLoadFile(String fileName) { loadProblemSet(fileName); }
             @Override public void onShowInstructions() { Toast.makeText(MainActivity.this, "显示说明书...", Toast.LENGTH_SHORT).show(); }
-            @Override public void onSyncFromGithub() { repository.syncFromGitHub(new ProblemRepository.SyncCallback() {
-                @Override public void onProgress(String fileName, int current, int total) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "下载: " + fileName, Toast.LENGTH_SHORT).show());}
-                @Override public void onSuccess(int count) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新成功: " + count + "个文件", Toast.LENGTH_LONG).show());}
-                @Override public void onFail(String error) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新失败: " + error, Toast.LENGTH_LONG).show());}
-            });}
+            @Override public void onSyncFromGithub() {
+                Toast.makeText(MainActivity.this, "开始从 Github 同步...", Toast.LENGTH_LONG).show();
+                repository.syncFromGitHub(new ProblemRepository.SyncCallback() {
+                    @Override public void onProgress(String fileName, int current, int total) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "下载: " + fileName, Toast.LENGTH_SHORT).show());}
+                    @Override public void onSuccess(int count) { runOnUiThread(() -> { Toast.makeText(MainActivity.this, "更新成功: " + count + "个文件", Toast.LENGTH_LONG).show(); sidebarLogic.setup(); });}
+                    @Override public void onFail(String error) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新失败: " + error, Toast.LENGTH_LONG).show());}
+                });
+            }
         });
         sidebarLogic.setup();
         gameTimer = new GameTimer(() -> {
@@ -105,8 +122,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startNewGameLocal() {
         GameModeSettings settings = sidebarLogic.getGameModeSettings();
-        // TODO: 下一步将 settings 传给 GameManager
-        gameManager.startNewGame(currentFileName.startsWith("随机")/*, settings*/);
+        gameManager.startNewGame(settings);
         if (gameTimer != null) gameTimer.start();
         resetSelection();
         refreshUI();
@@ -114,12 +130,21 @@ public class MainActivity extends AppCompatActivity {
         lastPlainTextSolution = "";
     }
 
+    public boolean isRandomModeActive() {
+        return currentFileName.startsWith("随机");
+    }
+
     private void refreshUI() {
         if (gameManager == null || cardButtons == null) return;
+        if (gameManager.currentNumberCount == 0) {
+            for(Button b : cardButtons) if (b != null) b.setVisibility(View.INVISIBLE);
+            if (tvMessage != null) tvMessage.setText(gameManager.currentLevelSolution);
+            return;
+        }
         if (gameManager.currentNumberCount == 4) cardButtons[4].setVisibility(View.GONE); else cardButtons[4].setVisibility(View.VISIBLE);
         for (int i = 0; i < 5; i++) {
             if (cardButtons[i] == null) continue;
-            if (gameManager.currentNumberCount == 4 && i == 4) continue;
+            if (gameManager.currentNumberCount <= i) { cardButtons[i].setVisibility(View.INVISIBLE); continue; }
             if (gameManager.cardValues[i] != null) {
                 cardButtons[i].setVisibility(View.VISIBLE);
                 cardButtons[i].setText(gameManager.cardValues[i].toString());
@@ -172,10 +197,7 @@ public class MainActivity extends AppCompatActivity {
         tvAvgTime.setText("平均: " + avg + "s");
     }
 
-    private String getFreshSolution() {
-        List<Fraction> currentNums = getCurrentNumbers();
-        return (currentNums.isEmpty()) ? null : Solver.solve(currentNums);
-    }
+    private String getFreshSolution() { return gameManager.currentLevelSolution; }
 
     private List<Fraction> getCurrentNumbers() {
         List<Fraction> currentNums = new ArrayList<>();
@@ -191,7 +213,6 @@ public class MainActivity extends AppCompatActivity {
                 String textToCopy = lastPlainTextSolution;
                 if (textToCopy == null || textToCopy.isEmpty()) textToCopy = tvMessage.getText().toString();
                 if (textToCopy.isEmpty()) return true;
-
                 ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
                 clipboard.setPrimaryClip(clip);
@@ -217,88 +238,151 @@ public class MainActivity extends AppCompatActivity {
         if (btnReset != null) btnReset.setOnClickListener(v -> { if (gameManager != null) gameManager.resetCurrentLevel(); refreshUI(); resetSelection(); if (tvMessage != null) tvMessage.setText(""); Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show(); });
         if (btnSkip != null) btnSkip.setOnClickListener(v -> startNewGameLocal());
 
-        // --- 核心修复：btnTry 的监听器 ---
+        // --- 修复后的 btnTry 监听器 ---
         if (btnTry != null) btnTry.setOnClickListener(v -> {
             String sol = getFreshSolution();
-            if (sol == null) {
+            if (sol == null || sol.contains("无符合")) {
                 if (tvMessage != null) tvMessage.setText("无解");
                 return;
             }
 
-            // 1. 找到最内层的括号表达式
+            // 1. 提取最内层括号内的表达式 (即当前运算步骤)
+            // 例如 "((1+2i)+5)" -> "1+2i+5"
+            // 这种提取方式不依赖运算符，纯粹基于括号结构，对 Gauss 整数很安全
             Pattern pattern = Pattern.compile("\\(([^()]+)\\)");
             Matcher matcher = pattern.matcher(sol);
             String innerExpr = null;
             if (matcher.find()) {
                 innerExpr = matcher.group(1).trim();
-            }
-
-            if (innerExpr == null) {
-                if (tvMessage != null) tvMessage.setText("无法找到提示");
-                return;
-            }
-
-            // 2. 解析表达式，找到左右数字
-            String[] parts = innerExpr.split(" ");
-            if (parts.length < 3) {
-                if (tvMessage != null) tvMessage.setText("无法解析提示");
-                return;
-            }
-            String leftNum = parts[0];
-            String rightNum = parts[2];
-
-            // 3. 查找并高亮对应的按钮
-            int firstButtonIndex = -1;
-            int secondButtonIndex = -1;
-
-            for (int i = 0; i < gameManager.currentNumberCount; i++) {
-                if (cardButtons[i].getText().toString().equals(leftNum)) {
-                    firstButtonIndex = i;
-                    break;
-                }
-            }
-
-            for (int i = 0; i < gameManager.currentNumberCount; i++) {
-                // 确保不与第一个按钮重复
-                if (i != firstButtonIndex && cardButtons[i].getText().toString().equals(rightNum)) {
-                    secondButtonIndex = i;
-                    break;
-                }
-            }
-
-            if (firstButtonIndex != -1 && secondButtonIndex != -1) {
-                cardButtons[firstButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
-                cardButtons[secondButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
             } else {
-                if (tvMessage != null) tvMessage.setText("提示步骤匹配失败");
+                innerExpr = sol; // 简单步骤可能无括号
+            }
+
+            if (innerExpr == null || innerExpr.isEmpty()) {
+                if (tvMessage != null) tvMessage.setText("无法获取提示");
+                return;
+            }
+
+            // 2. 智能匹配：按长度降序寻找匹配的卡片
+            // 关键：优先匹配 "1+2i" 这样较长的串，防止被误判为 "1"
+            List<Integer> indices = new ArrayList<>();
+            for (int i = 0; i < gameManager.currentNumberCount; i++) {
+                if (cardButtons[i] != null) indices.add(i);
+            }
+            Collections.sort(indices, (i1, i2) -> {
+                String s1 = cardButtons[i1].getText().toString();
+                String s2 = cardButtons[i2].getText().toString();
+                return s2.length() - s1.length();
+            });
+
+            int idx1 = -1, idx2 = -1;
+            int start1 = -1, end1 = -1;
+            int start2 = -1, end2 = -1;
+
+            // 查找第一个数在字符串中的位置
+            for (int i : indices) {
+                String val = cardButtons[i].getText().toString();
+                // 使用 indexOf 字面量查找，完全忽略 "+" 是否为正则特殊字符的问题
+                int p = innerExpr.indexOf(val);
+                if (p != -1) {
+                    idx1 = i;
+                    start1 = p;
+                    end1 = p + val.length();
+                    break;
+                }
+            }
+
+            // 查找第二个数 (查找位置不能与第一个数重叠)
+            if (idx1 != -1) {
+                for (int i : indices) {
+                    if (i == idx1) continue;
+                    String val = cardButtons[i].getText().toString();
+
+                    int p = -1;
+                    int searchIndex = 0;
+                    // 循环查找，直到找到一个不重叠的位置
+                    while (searchIndex < innerExpr.length()) {
+                        int found = innerExpr.indexOf(val, searchIndex);
+                        if (found == -1) break;
+
+                        // 检查是否与第一个找到的区间 [start1, end1) 重叠
+                        int foundEnd = found + val.length();
+                        if (foundEnd <= start1 || found >= end1) {
+                            p = found;
+                            break;
+                        }
+                        searchIndex = found + 1;
+                    }
+
+                    if (p != -1) {
+                        idx2 = i;
+                        start2 = p;
+                        end2 = p + val.length();
+                        break;
+                    }
+                }
+            }
+
+            if (idx1 != -1 && idx2 != -1) {
+                // 3. 高亮按钮 (粉色)
+                for(Button b : cardButtons) if (b != null) b.setBackgroundColor(Color.LTGRAY);
+                cardButtons[idx1].setBackgroundColor(Color.rgb(255, 192, 203));
+                cardButtons[idx2].setBackgroundColor(Color.rgb(255, 192, 203));
+
+                // 4. 构建带绿色运算符的 HTML 文本
+                // 确定两个数字在字符串中的先后顺序
+                int firstEnd, secondStart;
+                if (start1 < start2) {
+                    firstEnd = end1;
+                    secondStart = start2;
+                } else {
+                    firstEnd = end2;
+                    secondStart = start1;
+                }
+
+                // 截取三段：左边数字、中间运算符、右边数字
+                String leftPart = innerExpr.substring(0, firstEnd);
+                String operatorPart = innerExpr.substring(firstEnd, secondStart);
+                String rightPart = innerExpr.substring(secondStart);
+
+                // 将中间的运算符部分染成绿色 (#228B22)
+                String html = leftPart + "<font color='#228B22'>" + operatorPart + "</font>" + rightPart;
+
+                if (tvMessage != null) {
+                    tvMessage.setText(Html.fromHtml("提示: " + html, Html.FROM_HTML_MODE_LEGACY));
+                }
+            } else {
+                if (tvMessage != null) tvMessage.setText("提示步骤匹配失败: " + innerExpr);
             }
         });
 
+
+
         if (btnHintStruct != null) btnHintStruct.setOnClickListener(v -> {
             String sol = getFreshSolution();
-            if (sol != null) {
+            if (sol != null && !sol.contains("无符合")) {
                 if (tvMessage != null) {
                     tvMessage.setText("结构: ");
                     tvMessage.append(ExpressionHelper.formatStructure(sol, getCurrentNumbers()));
                     lastPlainTextSolution = ExpressionHelper.getStructureAsPlainText(sol, getCurrentNumbers());
                 }
             } else {
-                if (tvMessage != null) tvMessage.setText("无解");
-                lastPlainTextSolution = "无解";
+                if (tvMessage != null) tvMessage.setText(sol != null ? sol : "无解");
+                lastPlainTextSolution = sol != null ? sol : "无解";
             }
         });
 
         if (btnAnswer != null) btnAnswer.setOnClickListener(v -> {
             String sol = getFreshSolution();
-            if (sol != null) {
+            if (sol != null && !sol.contains("无符合")) {
                 if (tvMessage != null) {
                     tvMessage.setText("答案: ");
                     tvMessage.append(ExpressionHelper.formatAnswer(sol, getCurrentNumbers()));
                     lastPlainTextSolution = ExpressionHelper.getAnswerAsPlainText(sol, getCurrentNumbers());
                 }
             } else {
-                if (tvMessage != null) tvMessage.setText("无解");
-                lastPlainTextSolution = "无解";
+                if (tvMessage != null) tvMessage.setText(sol != null ? sol : "无解");
+                lastPlainTextSolution = sol != null ? sol : "无解";
             }
         });
 

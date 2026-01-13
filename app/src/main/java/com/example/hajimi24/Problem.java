@@ -3,11 +3,11 @@ package com.example.hajimi24;
 import java.util.List;
 
 public class Problem {
-    public List<Fraction> numbers;
-    public String solution;
+    public final List<Fraction> numbers;
+    public final String solution;
 
-    public Problem(List<Fraction> n, String s) {
-        this.numbers = n;
-        this.solution = s;
+    public Problem(List<Fraction> numbers, String solution) {
+        this.numbers = numbers;
+        this.solution = solution;
     }
 }
