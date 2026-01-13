@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="高质量出题"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switch_avoid_add_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="避免纯加减"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switch_must_have_division"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="必须有除法"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switch_avoid_trivial_mul"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="避免平凡乘法"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switch_require_fraction_calc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:text="包含分数加减"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switch_require_division_storm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:text="除法风暴"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="数字上界 (仅4整数)"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"/>
+
+        <RadioGroup
+            android:id="@+id/radiogroup_bounds"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <RadioButton
+                android:id="@+id/radio_bound_unlimited"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="不限"/>
+            <RadioButton
+                android:id="@+id/radio_bound_9"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="9"/>
+            <RadioButton
+                android:id="@+id/radio_bound_10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="10"/>
+            <RadioButton
+                android:id="@+id/radio_bound_13"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="13"/>
+            <RadioButton
+                android:id="@+id/radio_bound_20"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="20"/>
+        </RadioGroup>
+
+    </LinearLayout>
+</ScrollView>

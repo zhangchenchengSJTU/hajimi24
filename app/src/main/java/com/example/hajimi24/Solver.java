@@ -4,19 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Solver {
-    // 题目数据结构
     public static class Problem {
         List<Fraction> numbers;
         String solution;
         public Problem(List<Fraction> n, String s) { this.numbers = n; this.solution = s; }
     }
 
-    // 求解入口
     public static String solve(List<Fraction> nums) {
         return solveRec(new ArrayList<>(nums), new ArrayList<>());
     }
 
-    // 内部表达式类
     static class Expr {
         Fraction val;
         String str;
@@ -39,21 +36,23 @@ public class Solver {
                 List<Expr> next = new ArrayList<>();
                 for (int k = 0; k < list.size(); k++) if (k!=i && k!=j) next.add(list.get(k));
 
+                // 核心：运算符两侧加空格，与 MainActivity 的匹配逻辑对应
+
                 // 加
-                next.add(new Expr(a.val.add(b.val), "("+a.str+"+"+b.str+")"));
+                next.add(new Expr(a.val.add(b.val), "("+a.str+" + "+b.str+")"));
                 String r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
 
                 // 减
-                next.add(new Expr(a.val.sub(b.val), "("+a.str+"-"+b.str+")"));
+                next.add(new Expr(a.val.sub(b.val), "("+a.str+" - "+b.str+")"));
                 r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
 
                 // 乘
-                next.add(new Expr(a.val.multiply(b.val), "("+a.str+"*"+b.str+")"));
+                next.add(new Expr(a.val.multiply(b.val), "("+a.str+" * "+b.str+")"));
                 r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
 
                 // 除
-                if (!b.val.isZero()) {
-                    next.add(new Expr(a.val.divide(b.val), "("+a.str+"/"+b.str+")"));
+                if (!b.val.isValue(0)) {
+                    next.add(new Expr(a.val.divide(b.val), "("+a.str+" / "+b.str+")"));
                     r = solveExpr(next); if(r!=null) return r; next.remove(next.size()-1);
                 }
             }

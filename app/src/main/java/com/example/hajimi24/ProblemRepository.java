@@ -76,6 +76,12 @@ public class ProblemRepository {
         }).start();
     }
 
+    /**
+     * 修改后的读取方法：
+     * 1. 能够跳过 [119] 这种索引标签，正确读取后面的题目数组。
+     * 2. 自动去除 (6+i) 中的括号。
+     * 3. 增加容错，防止单行错误导致整个文件读取失败。
+     */
     public List<Problem> loadProblemSet(String fileName) throws Exception {
         List<Problem> problems = new ArrayList<>();
         InputStream is = getFileInputStream(fileName);
@@ -83,7 +89,9 @@ public class ProblemRepository {
 
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
         String line;
-        Pattern listPattern = Pattern.compile("\\[\'(.*?)\'\\]");
+
+        // 修改点1：使用更通用的正则，匹配任意方括号内容，不强制要求单引号
+        Pattern listPattern = Pattern.compile("\\[(.*?)\\]");
 
         while ((line = br.readLine()) != null) {
             line = line.trim();
@@ -92,14 +100,35 @@ public class ProblemRepository {
             if (parts.length < 2) continue;
 
             Matcher m = listPattern.matcher(parts[0]);
-            if (m.find()) {
-                String[] rawNums = m.group(1).split(",");
-                List<Fraction> fracs = new ArrayList<>();
-                for (String s : rawNums) fracs.add(Fraction.parse(s.trim().replace("\'", "")));
 
-                // --- 修改点：允许 3 到 5 个数字 ---
-                if (fracs.size() >= 3 && fracs.size() <= 5) {
+            // 修改点2：使用 while 循环查找。
+            // 例如 "[119] ['i', ...]"：
+            // 第1次匹配 [119]，解析后长度为1，跳过。
+            // 第2次匹配 ['i', ...]，解析后长度符合，添加题目并 break。
+            while (m.find()) {
+                String content = m.group(1);
+                String[] rawNums = content.split(",");
+                List<Fraction> fracs = new ArrayList<>();
+                boolean parseSuccess = true;
+
+                for (String s : rawNums) {
+                    try {
+                        // 修改点3：清洗数据，去除引号和括号 (6+i) -> 6+i
+                        String cleanS = s.trim()
+                                .replace("\'", "")
+                                .replace("(", "")
+                                .replace(")", "");
+                        fracs.add(Fraction.parse(cleanS));
+                    } catch (Exception e) {
+                        // 如果某个数字解析失败（例如 Fraction 不支持 i），标记失败并尝试下一个匹配
+                        parseSuccess = false;
+                        break;
+                    }
+                }
+
+                if (parseSuccess && fracs.size() >= 3 && fracs.size() <= 5) {
                     problems.add(new Problem(fracs, parts[1].trim()));
+                    break; // 找到有效的一组数据后，停止处理当前行，进入下一行
                 }
             }
         }
@@ -107,7 +136,6 @@ public class ProblemRepository {
         return problems;
     }
 
-    // ... (以下方法保持不变，省略以节省篇幅，请保留原文件中的实现) ...
     public List<String> getAvailableFiles() {
         Set<String> fileSet = new HashSet<>();
         try {
