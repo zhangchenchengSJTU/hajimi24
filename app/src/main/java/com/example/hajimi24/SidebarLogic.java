@@ -3,10 +3,16 @@ package com.example.hajimi24;
 import android.app.Activity;
 import android.graphics.Color;
 import android.os.Handler;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -18,6 +24,8 @@ import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.google.android.material.navigation.NavigationView;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class SidebarLogic {
@@ -29,7 +37,6 @@ public class SidebarLogic {
     private final ActionCallback callback;
     private final GameModeSettings gameModeSettings;
 
-    // 🚩 新增：记录当前是否为随机模式，默认为 true
     private boolean isCurrentModeRandom = true;
 
     public interface ActionCallback {
@@ -63,17 +70,17 @@ public class SidebarLogic {
                 syncFromGitHub();
             } else if (t.contains("模式设定")) {
                 showModeSettingsDialog();
+            } else if (t.contains("24点计算器")) {
+                showCalculatorDialog();
             } else {
-                // --- 状态切换逻辑 ---
                 if (t.contains("随机")) {
-                    isCurrentModeRandom = true; // 标记为随机模式
+                    isCurrentModeRandom = true;
                     if (t.contains("4数")) callback.onRandomMode(4);
                     else callback.onRandomMode(5);
                 } else if (t.contains("📄")) {
-                    isCurrentModeRandom = false; // 标记为文件模式
+                    isCurrentModeRandom = false;
                     callback.onLoadFile(t.substring(t.indexOf(" ") + 1));
                 }
-
                 drawerLayout.closeDrawer(GravityCompat.START);
             }
             return true;
@@ -81,12 +88,12 @@ public class SidebarLogic {
     }
 
     public void refreshMenu() {
-        // (保持原有的菜单刷新代码不变)
         Menu menu = navigationView.getMenu();
         menu.clear();
         menu.add(Menu.NONE, 888, Menu.NONE, "📖 游戏说明书");
         menu.add(Menu.NONE, 999, Menu.NONE, "☁️ 从 GitHub 更新题库");
         menu.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
+        menu.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
         menu.add(Menu.NONE, 0, Menu.NONE, "🎲 随机 (4数)");
         menu.add(Menu.NONE, 1, Menu.NONE, "🎲 随机 (5数)");
         List<String> files = repository.getAvailableFiles();
@@ -96,8 +103,195 @@ public class SidebarLogic {
         }
     }
 
+    // --- 计算器弹窗逻辑 ---
+    private void showCalculatorDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("24点计算器");
+
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int padding = 40;
+        layout.setPadding(padding, padding, padding, padding);
+
+        final EditText etInput = new EditText(activity);
+        etInput.setHint("请输入数字 (例如 3 3 8 8)\n支持复数 (3i, i3, 1+2i)");
+        etInput.setMinLines(2);
+        layout.addView(etInput);
+
+        LinearLayout buttonLayout = new LinearLayout(activity);
+        buttonLayout.setOrientation(LinearLayout.HORIZONTAL);
+        buttonLayout.setPadding(0, 20, 0, 0);
+
+        Button btnCalcAll = new Button(activity);
+        btnCalcAll.setText("计算所有解");
+
+        Button btnCalc10 = new Button(activity);
+        btnCalc10.setText("计算前 10 个");
+
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        btnParams.setMargins(5, 0, 5, 0);
+
+        buttonLayout.addView(btnCalcAll, btnParams);
+        buttonLayout.addView(btnCalc10, btnParams);
+
+        layout.addView(buttonLayout);
+
+        ScrollView scrollView = new ScrollView(activity);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 500);
+        scrollParams.topMargin = 20;
+        scrollView.setLayoutParams(scrollParams);
+
+        final TextView tvResult = new TextView(activity);
+        tvResult.setTextIsSelectable(true);
+        tvResult.setPadding(10, 10, 10, 10);
+        scrollView.addView(tvResult);
+
+        layout.addView(scrollView);
+
+        builder.setView(layout);
+        builder.setNegativeButton("关闭", null);
+
+        btnCalcAll.setOnClickListener(v -> performCalculation(etInput.getText().toString(), false, tvResult));
+        btnCalc10.setOnClickListener(v -> performCalculation(etInput.getText().toString(), true, tvResult));
+
+        builder.create().show();
+    }
+
+    // --- 统一的计算执行逻辑 ---
+    private void performCalculation(String input, boolean limit10, TextView tvResult) {
+        try {
+            List<Fraction> nums = parseInputString(input);
+
+            if (nums.isEmpty()) {
+                tvResult.setText("请输入有效的数字");
+                return;
+            }
+
+            if (nums.size() > 5) {
+                tvResult.setText("❌ 错误: 最多只允许输入 5 个数\n当前检测到 " + nums.size() + " 个数");
+                return;
+            }
+
+            tvResult.setText("正在计算...");
+
+            new Thread(() -> {
+                // 1. 获取所有原始解 (使用 rawSolutions 变量名)
+                List<String> rawSolutions = Solver.solveAll(nums);
+
+                // 2. 调用去重逻辑 (结果赋值给 solutions)
+                List<String> solutions = SolutionNormalizer.distinct(rawSolutions);
+
+                // 3. 排序
+                Collections.sort(solutions, (s1, s2) -> Integer.compare(s1.length(), s2.length()));
+
+                final List<String> displayList;
+                boolean isTruncated = false;
+
+                if (limit10 && solutions.size() > 10) {
+                    displayList = solutions.subList(0, 10);
+                    isTruncated = true;
+                } else {
+                    displayList = solutions;
+                }
+
+                boolean finalIsTruncated = isTruncated;
+                activity.runOnUiThread(() -> {
+                    if (displayList.isEmpty()) {
+                        tvResult.setText("无解");
+                    } else {
+                        SpannableStringBuilder ssb = new SpannableStringBuilder();
+                        if (finalIsTruncated) {
+                            ssb.append("展示前 10 个解 (共 ").append(String.valueOf(solutions.size())).append(" 个):\n\n");
+                        } else {
+                            ssb.append("共找到 ").append(String.valueOf(solutions.size())).append(" 种解法:\n\n");
+                        }
+
+                        for(int i=0; i<displayList.size(); i++) {
+                            String s = displayList.get(i);
+                            ssb.append("[").append(String.valueOf(i+1)).append("] ");
+
+                            Spanned styledSol = ExpressionHelper.formatAnswer(s, nums);
+                            ssb.append(styledSol);
+                            ssb.append("\n");
+                        }
+                        tvResult.setText(ssb);
+                    }
+                });
+            }).start();
+
+        } catch (Exception e) {
+            tvResult.setText("输入解析错误: " + e.getMessage());
+        }
+    }
+
+    private List<Fraction> parseInputString(String input) {
+        List<Fraction> list = new ArrayList<>();
+        String[] parts = input.split("[^0-9+\\-*/iIjJ]+");
+        for (String p : parts) {
+            p = p.trim();
+            if (!p.isEmpty()) {
+                list.add(parseTokenToFraction(p));
+            }
+        }
+        return list;
+    }
+
+    private Fraction parseTokenToFraction(String token) {
+        token = token.replace("(", "").replace(")", "").replace("（", "").replace("）", "");
+        token = token.replace("[", "").replace("]", "");
+        token = token.replace("{", "").replace("}", "");
+        token = token.replace("【", "").replace("】", "");
+        token = token.replace("I", "i").replace("j", "i").replace("J", "i");
+        token = token.replace("*", "");
+
+        if (token.contains("i")) {
+            long realPart = 0;
+            long imagPart = 0;
+
+            if (token.equals("i")) {
+                imagPart = 1;
+            } else if (token.equals("-i")) {
+                imagPart = -1;
+            } else {
+                boolean hasRealPart = false;
+                int splitIndex = -1;
+                for (int k = 1; k < token.length(); k++) {
+                    char c = token.charAt(k);
+                    if (c == '+' || c == '-') {
+                        hasRealPart = true;
+                        splitIndex = k;
+                        break;
+                    }
+                }
+
+                if (!hasRealPart) {
+                    String numStr = token.replace("i", "");
+                    if (numStr.isEmpty()) imagPart = 1;
+                    else if (numStr.equals("+")) imagPart = 1;
+                    else if (numStr.equals("-")) imagPart = -1;
+                    else imagPart = Long.parseLong(numStr);
+                } else {
+                    String realStr = token.substring(0, splitIndex);
+                    String imagStr = token.substring(splitIndex);
+                    realPart = Long.parseLong(realStr);
+                    String iValStr = imagStr.replace("i", "");
+                    if (iValStr.equals("+")) imagPart = 1;
+                    else if (iValStr.equals("-")) imagPart = -1;
+                    else imagPart = Long.parseLong(iValStr);
+                }
+            }
+            return new Fraction(realPart, imagPart, 1);
+        } else if (token.contains("/")) {
+            String[] fracParts = token.split("/");
+            return new Fraction(Long.parseLong(fracParts[0]), Long.parseLong(fracParts[1]));
+        } else {
+            return new Fraction(Long.parseLong(token), 1);
+        }
+    }
+
     private void syncFromGitHub() {
-        // (保持原有的同步代码不变，略去以节省篇幅)
         Menu menu = navigationView.getMenu();
         MenuItem updateItem = menu.findItem(999);
         if (updateItem != null) updateItem.setTitle("⏳ 正在连接 GitHub...");
@@ -109,7 +303,6 @@ public class SidebarLogic {
     }
 
     private void showHelpDialog() {
-        // (保持原有的说明书代码不变)
         CharSequence helpContent = MarkdownUtils.loadMarkdownFromAssets(activity, "help.md");
         AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle("游戏指南").setMessage(helpContent).setPositiveButton("开始挑战", null).create();
@@ -118,35 +311,26 @@ public class SidebarLogic {
         if (msgView != null) msgView.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     }
 
-    // --- 核心修改部分 ---
     private void showModeSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         LayoutInflater inflater = activity.getLayoutInflater();
         View dialogView = inflater.inflate(R.layout.dialog_mode_settings, null);
         builder.setView(dialogView);
 
-        // 绑定控件
         SwitchCompat switchAvoidAddSub = dialogView.findViewById(R.id.switch_avoid_add_sub);
         SwitchCompat switchMustHaveDivision = dialogView.findViewById(R.id.switch_must_have_division);
         SwitchCompat switchAvoidTrivialMul = dialogView.findViewById(R.id.switch_avoid_trivial_mul);
         SwitchCompat switchRequireFrac = dialogView.findViewById(R.id.switch_require_fraction_calc);
         SwitchCompat switchRequireStorm = dialogView.findViewById(R.id.switch_require_division_storm);
-        RadioGroup radioGroupBounds = dialogView.findViewById(R.id.radiogroup_bounds);
-
-        // ⚠️ 请确保 layout 中有这个 TextView，如果没有会导致空指针崩溃
-        // 如果还没有修改 layout，请暂时注释掉这两行
         TextView tvWarning = dialogView.findViewById(R.id.tv_warning_random);
 
-        // 初始化开关状态
         switchAvoidAddSub.setChecked(gameModeSettings.avoidPureAddSub);
         switchMustHaveDivision.setChecked(gameModeSettings.mustHaveDivision);
         switchAvoidTrivialMul.setChecked(gameModeSettings.avoidTrivialFinalMultiply);
         switchRequireFrac.setChecked(gameModeSettings.requireFractionCalc);
         switchRequireStorm.setChecked(gameModeSettings.requireDivisionStorm);
 
-        // --- 核心逻辑: 可见性联动 ---
         Runnable updateVisibility = () -> {
-            // 规则 1: 如果是随机模式，隐藏所有“高质量”开关，显示警告文字
             if (isCurrentModeRandom) {
                 switchAvoidAddSub.setVisibility(View.GONE);
                 switchMustHaveDivision.setVisibility(View.GONE);
@@ -156,50 +340,29 @@ public class SidebarLogic {
 
                 if (tvWarning != null) {
                     tvWarning.setVisibility(View.VISIBLE);
-                    tvWarning.setText("🚫 高质量出题仅在加载题库文件时可用\n请先从侧边栏选择一个文件");
+                    tvWarning.setText("🚫 高质量出题仅在加载题库文件时可用, 请先从侧边栏选择一个文件");
                 }
-                return; // 直接结束，不再处理后续逻辑
+                return;
             }
 
-            // 如果不是随机模式，隐藏警告
             if (tvWarning != null) tvWarning.setVisibility(View.GONE);
 
-            // 规则 2: 第一层开关 - 避免纯加减
-            switchAvoidAddSub.setVisibility(View.VISIBLE); // 永远显示第一层
-
+            switchAvoidAddSub.setVisibility(View.VISIBLE);
             boolean layer1Active = switchAvoidAddSub.isChecked();
-
-            // 规则 2: 打开 '避免纯加减' 才会出现 '必须有除法' 和 '避免平凡乘法'
             int layer2Visibility = layer1Active ? View.VISIBLE : View.GONE;
             switchMustHaveDivision.setVisibility(layer2Visibility);
             switchAvoidTrivialMul.setVisibility(layer2Visibility);
-
-            // 规则 3: 先打开 '必须有除法' 和 '避免平凡乘法'，才有 '包含分数' 和 '除法风暴'
             boolean mustDiv = switchMustHaveDivision.isChecked();
             boolean avoidTrivial = switchAvoidTrivialMul.isChecked();
-
-            // 只有 Layer 1 开启，且 Layer 2 的两个都开启时，Layer 3 才显示
             int layer3Visibility = (layer1Active && mustDiv && avoidTrivial) ? View.VISIBLE : View.GONE;
-
             switchRequireFrac.setVisibility(layer3Visibility);
             switchRequireStorm.setVisibility(layer3Visibility);
         };
 
-        // 绑定监听器
         switchAvoidAddSub.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
         switchMustHaveDivision.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
         switchAvoidTrivialMul.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
-
-        // 初始化运行一次，设定初始状态
         updateVisibility.run();
-
-        // 绑定数字范围逻辑 (保持不变)
-        int bound = gameModeSettings.numberBound;
-        if (bound == 9) radioGroupBounds.check(R.id.radio_bound_9);
-        else if (bound == 10) radioGroupBounds.check(R.id.radio_bound_10);
-        else if (bound == 13) radioGroupBounds.check(R.id.radio_bound_13);
-        else if (bound == 20) radioGroupBounds.check(R.id.radio_bound_20);
-        else radioGroupBounds.check(R.id.radio_bound_unlimited);
 
         builder.setTitle("模式设定")
                 .setPositiveButton("确定", (dialog, id) -> {
@@ -208,13 +371,6 @@ public class SidebarLogic {
                     gameModeSettings.avoidTrivialFinalMultiply = switchAvoidTrivialMul.isChecked();
                     gameModeSettings.requireFractionCalc = switchRequireFrac.isChecked();
                     gameModeSettings.requireDivisionStorm = switchRequireStorm.isChecked();
-
-                    int selectedRadioId = radioGroupBounds.getCheckedRadioButtonId();
-                    if (selectedRadioId == R.id.radio_bound_9) gameModeSettings.numberBound = 9;
-                    else if (selectedRadioId == R.id.radio_bound_10) gameModeSettings.numberBound = 10;
-                    else if (selectedRadioId == R.id.radio_bound_13) gameModeSettings.numberBound = 13;
-                    else if (selectedRadioId == R.id.radio_bound_20) gameModeSettings.numberBound = 20;
-                    else gameModeSettings.numberBound = -1;
                     if (callback != null) {
                         callback.onSettingsChanged();
                     }

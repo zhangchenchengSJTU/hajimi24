@@ -12,9 +12,4 @@ public class GameModeSettings {
         return new GameModeSettings();
     }
 
-    public boolean isDefault() {
-        // ... (内容不变)
-        return numberBound == -1 && !avoidPureAddSub && !mustHaveDivision &&
-                !avoidTrivialFinalMultiply && !requireFractionCalc && !requireDivisionStorm;
-    }
 }

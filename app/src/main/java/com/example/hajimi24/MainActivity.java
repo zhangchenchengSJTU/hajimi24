@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
+    private Problem mCurrentProblem;
 
     private String currentLoadedFile = null;
     private DrawerLayout drawerLayout;
@@ -312,7 +313,22 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        if (btnShare != null) btnShare.setOnClickListener(v -> {/*...Share 逻辑...*/});
+        if (btnShare != null) {
+            btnShare.setOnClickListener(v -> {
+                // 修改：使用新的 getShareText() 方法
+                String textToCopy = gameManager.getShareText();
+
+                if (textToCopy != null && !textToCopy.isEmpty()) {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    // ClipData 的标签可以改得更贴切一点，比如 "Hajimi24 Question"
+                    ClipData clip = ClipData.newPlainText("Hajimi24 Question", textToCopy);
+                    clipboard.setPrimaryClip(clip);
+                    Toast.makeText(MainActivity.this, "题目已复制到剪贴板", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(MainActivity.this, "当前没有可分享的题目", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
     }
 
     private void resetOpColors() {

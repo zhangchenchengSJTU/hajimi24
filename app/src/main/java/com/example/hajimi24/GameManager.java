@@ -11,9 +11,7 @@ public class GameManager {
 
     public Fraction[] cardValues = new Fraction[5];
     public Fraction[] initialValues = new Fraction[5];
-
-
-
+    private String rawProblemLineCache; // 我们将使用这个字段来缓存当前题目的字符串
 
     private Stack<Fraction[]> undoStack = new Stack<>();
     private Stack<Fraction[]> redoStack = new Stack<>();
@@ -34,7 +32,6 @@ public class GameManager {
     private void generateLevel(boolean isRandomMode) {
         Arrays.fill(cardValues, null);
 
-
         if (!isRandomMode && !problemSet.isEmpty()) {
             currentProblemIndex++;
             if (currentProblemIndex >= problemSet.size()) {
@@ -45,6 +42,9 @@ public class GameManager {
             currentNumberCount = prob.numbers.size();
             for (int i = 0; i < currentNumberCount; i++) cardValues[i] = prob.numbers.get(i);
             currentLevelSolution = prob.solution;
+
+            // [修复]：从 Problem 对象获取原始题目字符串并缓存
+            rawProblemLineCache = prob.line;
         } else {
             // 随机模式逻辑
             Random rand = new Random();
@@ -55,6 +55,20 @@ public class GameManager {
                 if(sol != null) {
                     for(int i=0; i<currentNumberCount; i++) cardValues[i] = nums.get(i);
                     currentLevelSolution = sol;
+
+                    // [修复]：随机模式下手动构建题目字符串并缓存
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("['");
+                    for (int i = 0; i < nums.size(); i++) {
+                        sb.append(nums.get(i).toString());
+                        if (i < nums.size() - 1) {
+                            sb.append("', '");
+                        }
+                    }
+                    sb.append("']->");
+                    sb.append(sol);
+                    rawProblemLineCache = sb.toString();
+
                     break;
                 }
             }
@@ -80,10 +94,6 @@ public class GameManager {
             case "/": result = f1.divide(f2); break; // 可能抛出异常
         }
 
-
-
-
-
         saveToUndo();
         redoStack.clear();
         cardValues[idx2] = result;
@@ -103,12 +113,6 @@ public class GameManager {
         Fraction[] state = new Fraction[5];
         System.arraycopy(cardValues, 0, state, 0, 5);
         undoStack.push(state);
-
-
-
-
-
-
     }
 
     public boolean undo() {
@@ -125,34 +129,6 @@ public class GameManager {
             saveToUndo();
             cardValues = redoStack.pop();
             return true;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         }
         return false;
     }
@@ -161,7 +137,6 @@ public class GameManager {
         saveToUndo();
         redoStack.clear();
         System.arraycopy(initialValues, 0, cardValues, 0, 5);
-
     }
 
     // 获取当前解
@@ -174,7 +149,30 @@ public class GameManager {
         List<Fraction> nums = new ArrayList<>();
         for (Fraction f : cardValues) if (f != null) nums.add(f);
         return Solver.solve(nums);
+    }
 
+    /**
+     * [修复后的方法]
+     * 获取当前题目的原始、未经处理的完整字符串.
+     * @return 原始题目字符串, 如果没有题目则返回 null.
+     */
+    public String getRawProblemLine() {
+        return rawProblemLineCache;
+    }
+    public String getShareText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("哈基米问你: ");
 
+        // 遍历初始数值 (initialValues)，而不是当前的 cardValues
+        for (int i = 0; i < currentNumberCount; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            if (initialValues[i] != null) {
+                sb.append(initialValues[i].toString());
+            }
+        }
+        sb.append(" 如何计算 24 点?");
+        return sb.toString();
     }
 }
