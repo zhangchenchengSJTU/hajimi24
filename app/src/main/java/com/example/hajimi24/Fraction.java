@@ -98,6 +98,10 @@ public class Fraction {
         }
 
         return new Fraction(nRe, nIm, nDe);
+
+
+
+
     }
 
     // 复数加法
@@ -125,6 +129,8 @@ public class Fraction {
                 this.re * o.im + this.im * o.re,
                 this.de * o.de
         );
+
+
     }
 
     // 复数除法: (a+bi)/(c+di) = (a+bi)(c-di) / (c^2+d^2)
@@ -180,8 +186,17 @@ public class Fraction {
             }
         }
 
+
         return sb.toString();
+
+
+
+
+
     }
 
     private static long gcd(long a, long b) { return b == 0 ? a : gcd(b, a % b); }
+
+
+
 }

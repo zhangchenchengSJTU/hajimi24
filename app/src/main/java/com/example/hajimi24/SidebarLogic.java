@@ -1,44 +1,52 @@
 package com.example.hajimi24;
 
-import android.app.AlertDialog;
-import android.content.Context;
+import android.app.Activity;
+import android.graphics.Color;
+import android.os.Handler;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
-import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
+
 import com.google.android.material.navigation.NavigationView;
+
 import java.util.List;
 
 public class SidebarLogic {
 
-    public interface ActionCallback {
-        void onRandomMode(int count);
-        void onLoadFile(String fileName);
-        // 我们可以为说明书、更新等添加回调
-        void onShowInstructions();
-        void onSyncFromGithub();
-    }
-
-    private final MainActivity context;
+    private final Activity activity;
     private final DrawerLayout drawerLayout;
-    private final NavigationView navView;
+    private final NavigationView navigationView;
     private final ProblemRepository repository;
     private final ActionCallback callback;
     private final GameModeSettings gameModeSettings;
-    private final Menu menu;
 
-    public SidebarLogic(MainActivity context, DrawerLayout drawerLayout, NavigationView navView, ProblemRepository repository, ActionCallback callback) {
-        this.context = context;
+    // 🚩 新增：记录当前是否为随机模式，默认为 true
+    private boolean isCurrentModeRandom = true;
+
+    public interface ActionCallback {
+        void onRandomMode(int count);
+        void onLoadFile(String fileName);
+        void onSettingsChanged();
+    }
+
+    public SidebarLogic(Activity activity, DrawerLayout drawerLayout,
+                        NavigationView navigationView, ProblemRepository repository,
+                        ActionCallback callback) {
+        this.activity = activity;
         this.drawerLayout = drawerLayout;
-        this.navView = navView;
+        this.navigationView = navigationView;
         this.repository = repository;
         this.callback = callback;
         this.gameModeSettings = new GameModeSettings();
-        this.menu = navView.getMenu();
     }
 
     public GameModeSettings getGameModeSettings() {
@@ -46,60 +54,78 @@ public class SidebarLogic {
     }
 
     public void setup() {
-        // 清空可能由XML加载的旧菜单项
-        menu.clear();
+        refreshMenu();
+        navigationView.setNavigationItemSelectedListener(item -> {
+            String t = item.getTitle().toString();
+            if (t.contains("游戏说明书")) {
+                showHelpDialog();
+            } else if (t.contains("从 GitHub 更新")) {
+                syncFromGitHub();
+            } else if (t.contains("模式设定")) {
+                showModeSettingsDialog();
+            } else {
+                // --- 状态切换逻辑 ---
+                if (t.contains("随机")) {
+                    isCurrentModeRandom = true; // 标记为随机模式
+                    if (t.contains("4数")) callback.onRandomMode(4);
+                    else callback.onRandomMode(5);
+                } else if (t.contains("📄")) {
+                    isCurrentModeRandom = false; // 标记为文件模式
+                    callback.onLoadFile(t.substring(t.indexOf(" ") + 1));
+                }
 
-        // --- 恢复您原有的动态菜单逻辑 ---
-        menu.add("说明书").setOnMenuItemClickListener(item -> {
-            // callback.onShowInstructions(); // 触发显示说明书的回调
-            drawerLayout.closeDrawer(GravityCompat.START);
-            return true;
-        });
-        menu.add("从 Github 更新题库").setOnMenuItemClickListener(item -> {
-            // callback.onSyncFromGithub(); // 触发更新的回调
-            drawerLayout.closeDrawer(GravityCompat.START);
-            return true;
-        });
-
-        // --- 新增：“模式设定”入口 ---
-        menu.add("模式设定").setOnMenuItemClickListener(item -> {
-            showModeSettingsDialog();
-            // 点击设定项不关闭抽屉，方便用户查看结果
-            return true;
-        });
-
-        Menu randomMenu = menu.addSubMenu("随机模式");
-        randomMenu.add("随机(4数)").setOnMenuItemClickListener(item -> {
-            callback.onRandomMode(4);
-            drawerLayout.closeDrawer(GravityCompat.START);
-            return true;
-        });
-        randomMenu.add("随机(5数)").setOnMenuItemClickListener(item -> {
-            callback.onRandomMode(5);
-            drawerLayout.closeDrawer(GravityCompat.START);
-            return true;
-        });
-
-        Menu fileMenu = menu.addSubMenu("加载文件");
-        List<String> files = repository.getAvailableFiles();
-        if (files != null && !files.isEmpty()) {
-            for (String file : files) {
-                fileMenu.add(file).setOnMenuItemClickListener(item -> {
-                    callback.onLoadFile(file);
-                    drawerLayout.closeDrawer(GravityCompat.START);
-                    return true;
-                });
+                drawerLayout.closeDrawer(GravityCompat.START);
             }
+            return true;
+        });
+    }
+
+    public void refreshMenu() {
+        // (保持原有的菜单刷新代码不变)
+        Menu menu = navigationView.getMenu();
+        menu.clear();
+        menu.add(Menu.NONE, 888, Menu.NONE, "📖 游戏说明书");
+        menu.add(Menu.NONE, 999, Menu.NONE, "☁️ 从 GitHub 更新题库");
+        menu.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
+        menu.add(Menu.NONE, 0, Menu.NONE, "🎲 随机 (4数)");
+        menu.add(Menu.NONE, 1, Menu.NONE, "🎲 随机 (5数)");
+        List<String> files = repository.getAvailableFiles();
+        if (files != null) {
+            int id = 2;
+            for (String f : files) menu.add(Menu.NONE, id++, Menu.NONE, "📄 " + f);
         }
     }
 
+    private void syncFromGitHub() {
+        // (保持原有的同步代码不变，略去以节省篇幅)
+        Menu menu = navigationView.getMenu();
+        MenuItem updateItem = menu.findItem(999);
+        if (updateItem != null) updateItem.setTitle("⏳ 正在连接 GitHub...");
+        repository.syncFromGitHub(new ProblemRepository.SyncCallback() {
+            @Override public void onProgress(String fileName, int current, int total) { activity.runOnUiThread(() -> { if (updateItem != null) updateItem.setTitle("⬇️ " + current + "/" + total); }); }
+            @Override public void onSuccess(int count) { activity.runOnUiThread(() -> { if (updateItem != null) updateItem.setTitle("✅ 完成"); Toast.makeText(activity, "更新完成", Toast.LENGTH_SHORT).show(); refreshMenu(); }); }
+            @Override public void onFail(String error) { activity.runOnUiThread(() -> { if (updateItem != null) updateItem.setTitle("❌ 失败"); Toast.makeText(activity, error, Toast.LENGTH_SHORT).show(); }); }
+        });
+    }
+
+    private void showHelpDialog() {
+        // (保持原有的说明书代码不变)
+        CharSequence helpContent = MarkdownUtils.loadMarkdownFromAssets(activity, "help.md");
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle("游戏指南").setMessage(helpContent).setPositiveButton("开始挑战", null).create();
+        dialog.show();
+        TextView msgView = dialog.findViewById(android.R.id.message);
+        if (msgView != null) msgView.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    }
+
+    // --- 核心修改部分 ---
     private void showModeSettingsDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        LayoutInflater inflater = context.getLayoutInflater();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        LayoutInflater inflater = activity.getLayoutInflater();
         View dialogView = inflater.inflate(R.layout.dialog_mode_settings, null);
         builder.setView(dialogView);
 
-        // --- 找到弹窗内的所有UI控件 ---
+        // 绑定控件
         SwitchCompat switchAvoidAddSub = dialogView.findViewById(R.id.switch_avoid_add_sub);
         SwitchCompat switchMustHaveDivision = dialogView.findViewById(R.id.switch_must_have_division);
         SwitchCompat switchAvoidTrivialMul = dialogView.findViewById(R.id.switch_avoid_trivial_mul);
@@ -107,27 +133,67 @@ public class SidebarLogic {
         SwitchCompat switchRequireStorm = dialogView.findViewById(R.id.switch_require_division_storm);
         RadioGroup radioGroupBounds = dialogView.findViewById(R.id.radiogroup_bounds);
 
-        // --- 用当前设置填充UI ---
+        // ⚠️ 请确保 layout 中有这个 TextView，如果没有会导致空指针崩溃
+        // 如果还没有修改 layout，请暂时注释掉这两行
+        TextView tvWarning = dialogView.findViewById(R.id.tv_warning_random);
+
+        // 初始化开关状态
         switchAvoidAddSub.setChecked(gameModeSettings.avoidPureAddSub);
         switchMustHaveDivision.setChecked(gameModeSettings.mustHaveDivision);
         switchAvoidTrivialMul.setChecked(gameModeSettings.avoidTrivialFinalMultiply);
         switchRequireFrac.setChecked(gameModeSettings.requireFractionCalc);
         switchRequireStorm.setChecked(gameModeSettings.requireDivisionStorm);
 
-        // 动态显隐逻辑
+        // --- 核心逻辑: 可见性联动 ---
         Runnable updateVisibility = () -> {
+            // 规则 1: 如果是随机模式，隐藏所有“高质量”开关，显示警告文字
+            if (isCurrentModeRandom) {
+                switchAvoidAddSub.setVisibility(View.GONE);
+                switchMustHaveDivision.setVisibility(View.GONE);
+                switchAvoidTrivialMul.setVisibility(View.GONE);
+                switchRequireFrac.setVisibility(View.GONE);
+                switchRequireStorm.setVisibility(View.GONE);
+
+                if (tvWarning != null) {
+                    tvWarning.setVisibility(View.VISIBLE);
+                    tvWarning.setText("🚫 高质量出题仅在加载题库文件时可用\n请先从侧边栏选择一个文件");
+                }
+                return; // 直接结束，不再处理后续逻辑
+            }
+
+            // 如果不是随机模式，隐藏警告
+            if (tvWarning != null) tvWarning.setVisibility(View.GONE);
+
+            // 规则 2: 第一层开关 - 避免纯加减
+            switchAvoidAddSub.setVisibility(View.VISIBLE); // 永远显示第一层
+
+            boolean layer1Active = switchAvoidAddSub.isChecked();
+
+            // 规则 2: 打开 '避免纯加减' 才会出现 '必须有除法' 和 '避免平凡乘法'
+            int layer2Visibility = layer1Active ? View.VISIBLE : View.GONE;
+            switchMustHaveDivision.setVisibility(layer2Visibility);
+            switchAvoidTrivialMul.setVisibility(layer2Visibility);
+
+            // 规则 3: 先打开 '必须有除法' 和 '避免平凡乘法'，才有 '包含分数' 和 '除法风暴'
             boolean mustDiv = switchMustHaveDivision.isChecked();
             boolean avoidTrivial = switchAvoidTrivialMul.isChecked();
-            boolean reqFrac = switchRequireFrac.isChecked();
-            switchRequireFrac.setVisibility(mustDiv && avoidTrivial ? View.VISIBLE : View.GONE);
-            switchRequireStorm.setVisibility(mustDiv && avoidTrivial && reqFrac ? View.VISIBLE : View.GONE);
+
+            // 只有 Layer 1 开启，且 Layer 2 的两个都开启时，Layer 3 才显示
+            int layer3Visibility = (layer1Active && mustDiv && avoidTrivial) ? View.VISIBLE : View.GONE;
+
+            switchRequireFrac.setVisibility(layer3Visibility);
+            switchRequireStorm.setVisibility(layer3Visibility);
         };
+
+        // 绑定监听器
+        switchAvoidAddSub.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
         switchMustHaveDivision.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
         switchAvoidTrivialMul.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
-        switchRequireFrac.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
-        updateVisibility.run(); // 初始检查
 
-        // 填充数字上界
+        // 初始化运行一次，设定初始状态
+        updateVisibility.run();
+
+        // 绑定数字范围逻辑 (保持不变)
         int bound = gameModeSettings.numberBound;
         if (bound == 9) radioGroupBounds.check(R.id.radio_bound_9);
         else if (bound == 10) radioGroupBounds.check(R.id.radio_bound_10);
@@ -137,7 +203,6 @@ public class SidebarLogic {
 
         builder.setTitle("模式设定")
                 .setPositiveButton("确定", (dialog, id) -> {
-                    // --- 点击“确定”，保存所有设置 ---
                     gameModeSettings.avoidPureAddSub = switchAvoidAddSub.isChecked();
                     gameModeSettings.mustHaveDivision = switchMustHaveDivision.isChecked();
                     gameModeSettings.avoidTrivialFinalMultiply = switchAvoidTrivialMul.isChecked();
@@ -150,9 +215,11 @@ public class SidebarLogic {
                     else if (selectedRadioId == R.id.radio_bound_13) gameModeSettings.numberBound = 13;
                     else if (selectedRadioId == R.id.radio_bound_20) gameModeSettings.numberBound = 20;
                     else gameModeSettings.numberBound = -1;
+                    if (callback != null) {
+                        callback.onSettingsChanged();
+                    }
                 })
                 .setNegativeButton("取消", (dialog, id) -> dialog.cancel());
-
         builder.create().show();
     }
 }

@@ -8,8 +8,13 @@ import java.util.Random;
 import java.util.Stack;
 
 public class GameManager {
+
     public Fraction[] cardValues = new Fraction[5];
     public Fraction[] initialValues = new Fraction[5];
+
+
+
+
     private Stack<Fraction[]> undoStack = new Stack<>();
     private Stack<Fraction[]> redoStack = new Stack<>();
 
@@ -28,6 +33,7 @@ public class GameManager {
 
     private void generateLevel(boolean isRandomMode) {
         Arrays.fill(cardValues, null);
+
 
         if (!isRandomMode && !problemSet.isEmpty()) {
             currentProblemIndex++;
@@ -74,6 +80,10 @@ public class GameManager {
             case "/": result = f1.divide(f2); break; // 可能抛出异常
         }
 
+
+
+
+
         saveToUndo();
         redoStack.clear();
         cardValues[idx2] = result;
@@ -93,6 +103,12 @@ public class GameManager {
         Fraction[] state = new Fraction[5];
         System.arraycopy(cardValues, 0, state, 0, 5);
         undoStack.push(state);
+
+
+
+
+
+
     }
 
     public boolean undo() {
@@ -109,6 +125,34 @@ public class GameManager {
             saveToUndo();
             cardValues = redoStack.pop();
             return true;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         }
         return false;
     }
@@ -117,6 +161,7 @@ public class GameManager {
         saveToUndo();
         redoStack.clear();
         System.arraycopy(initialValues, 0, cardValues, 0, 5);
+
     }
 
     // 获取当前解
@@ -129,5 +174,7 @@ public class GameManager {
         List<Fraction> nums = new ArrayList<>();
         for (Fraction f : cardValues) if (f != null) nums.add(f);
         return Solver.solve(nums);
+
+
     }
 }

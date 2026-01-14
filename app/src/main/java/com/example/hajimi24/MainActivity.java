@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
+    private String currentLoadedFile = null;
     private DrawerLayout drawerLayout;
     private TextView tvScore, tvTimer, tvAvgTime, tvMessage;
     private Button[] cardButtons = new Button[5];
@@ -57,14 +58,23 @@ public class MainActivity extends AppCompatActivity {
     private void initHelpers() {
         NavigationView navView = findViewById(R.id.nav_view);
         sidebarLogic = new SidebarLogic(this, drawerLayout, navView, repository, new SidebarLogic.ActionCallback() {
-            @Override public void onRandomMode(int count) { switchToRandomMode(count); }
-            @Override public void onLoadFile(String fileName) { loadProblemSet(fileName); }
-            @Override public void onShowInstructions() { Toast.makeText(MainActivity.this, "显示说明书...", Toast.LENGTH_SHORT).show(); }
-            @Override public void onSyncFromGithub() { repository.syncFromGitHub(new ProblemRepository.SyncCallback() {
-                @Override public void onProgress(String fileName, int current, int total) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "下载: " + fileName, Toast.LENGTH_SHORT).show());}
-                @Override public void onSuccess(int count) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新成功: " + count + "个文件", Toast.LENGTH_LONG).show());}
-                @Override public void onFail(String error) { runOnUiThread(() -> Toast.makeText(MainActivity.this, "更新失败: " + error, Toast.LENGTH_LONG).show());}
-            });}
+            @Override
+            public void onRandomMode(int count) {
+                switchToRandomMode(count);
+            }
+            @Override
+            public void onLoadFile(String fileName) {
+                loadProblemSet(fileName);
+            }
+            // [核心修复] 实现新的回调方法
+            @Override
+            public void onSettingsChanged() {
+                // 如果当前是文件模式，则重新加载该文件
+                if (currentFileName != null && !currentFileName.startsWith("随机")) {
+                    loadProblemSet(currentFileName + ".txt");
+                }
+            }
+
         });
         sidebarLogic.setup();
         gameTimer = new GameTimer(() -> {
@@ -87,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void loadProblemSet(String fileName) {
         try {
-            List<Problem> problems = repository.loadProblemSet(fileName);
+            List<Problem> problems = repository.loadProblemSet(fileName, sidebarLogic.getGameModeSettings());
             gameManager.setProblemSet(problems);
             currentFileName = fileName.replace(".txt", "");
             btnMenu.setText("☰ 模式: " + currentFileName);
