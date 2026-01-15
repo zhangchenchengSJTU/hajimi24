@@ -6,11 +6,13 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
-import android.text.Spanned;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.content.SharedPreferences;
+import androidx.appcompat.app.AppCompatDelegate;
+
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.GravityCompat;
@@ -42,9 +44,50 @@ public class MainActivity extends AppCompatActivity {
     private String selectedOperator = null;
     private String currentFileName = "随机(4数)";
     private String lastPlainTextSolution = "";
+    private void showThemeSelectionDialog() {
+        final String[] themes = {"跟随系统", "日间模式", "夜间模式"};
+
+        // 获取当前保存的模式，用于确定默认选中哪一项
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        int currentMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+
+        int checkedItem;
+        switch (currentMode) {
+            case AppCompatDelegate.MODE_NIGHT_NO: checkedItem = 1; break;   // 日间
+            case AppCompatDelegate.MODE_NIGHT_YES: checkedItem = 2; break;  // 夜间
+            default: checkedItem = 0; break;                                // 跟随系统
+        }
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("选择主题")
+                .setSingleChoiceItems(themes, checkedItem, (dialog, which) -> {
+                    int selectedMode;
+                    if (which == 1) {
+                        selectedMode = AppCompatDelegate.MODE_NIGHT_NO;
+                    } else if (which == 2) {
+                        selectedMode = AppCompatDelegate.MODE_NIGHT_YES;
+                    } else {
+                        selectedMode = AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
+                    }
+
+                    // 1. 保存设置
+                    prefs.edit().putInt("theme_mode", selectedMode).apply();
+
+                    // 2. 应用设置 (会触发生命周期重启 Activity)
+                    AppCompatDelegate.setDefaultNightMode(selectedMode);
+
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 1. 读取保存的主题设置
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        int themeMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        AppCompatDelegate.setDefaultNightMode(themeMode);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         repository = new ProblemRepository(this);
@@ -67,15 +110,12 @@ public class MainActivity extends AppCompatActivity {
             public void onLoadFile(String fileName) {
                 loadProblemSet(fileName);
             }
-            // [核心修复] 实现新的回调方法
             @Override
             public void onSettingsChanged() {
-                // 如果当前是文件模式，则重新加载该文件
                 if (currentFileName != null && !currentFileName.startsWith("随机")) {
                     loadProblemSet(currentFileName + ".txt");
                 }
             }
-
         });
         sidebarLogic.setup();
         gameTimer = new GameTimer(() -> {
@@ -101,11 +141,21 @@ public class MainActivity extends AppCompatActivity {
             List<Problem> problems = repository.loadProblemSet(fileName, sidebarLogic.getGameModeSettings());
             gameManager.setProblemSet(problems);
             currentFileName = fileName.replace(".txt", "");
-            btnMenu.setText("☰ 模式: " + currentFileName);
+
+            String displayText;
+            if (currentFileName.contains("-")) {
+                String[] parts = currentFileName.split("-", 2);
+                displayText = "☰ 模式: " + parts[0] + "\n(" + parts[1] + ")";
+            } else {
+                displayText = "☰ 模式: " + currentFileName;
+            }
+            btnMenu.setText(displayText);
+
             Toast.makeText(this, "加载成功", Toast.LENGTH_SHORT).show();
             startNewGameLocal();
         } catch (Exception e) { e.printStackTrace(); switchToRandomMode(4); }
     }
+
 
     public void switchToRandomMode(int count) {
         gameManager.currentNumberCount = count;
@@ -115,9 +165,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startNewGameLocal() {
-        GameModeSettings settings = sidebarLogic.getGameModeSettings();
-        // TODO: 下一步将 settings 传给 GameManager
-        gameManager.startNewGame(currentFileName.startsWith("随机")/*, settings*/);
+        gameManager.startNewGame(currentFileName.startsWith("随机"));
         if (gameTimer != null) gameTimer.start();
         resetSelection();
         refreshUI();
@@ -127,18 +175,24 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshUI() {
         if (gameManager == null || cardButtons == null) return;
-        if (gameManager.currentNumberCount == 4) cardButtons[4].setVisibility(View.GONE); else cardButtons[4].setVisibility(View.VISIBLE);
+        int count = gameManager.currentNumberCount;
         for (int i = 0; i < 5; i++) {
             if (cardButtons[i] == null) continue;
-            if (gameManager.currentNumberCount == 4 && i == 4) continue;
-            if (gameManager.cardValues[i] != null) {
-                cardButtons[i].setVisibility(View.VISIBLE);
-                cardButtons[i].setText(gameManager.cardValues[i].toString());
-                cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC"));
-            } else { cardButtons[i].setVisibility(View.INVISIBLE); }
+            if (i >= count) {
+                cardButtons[i].setVisibility(View.GONE);
+            } else {
+                if (gameManager.cardValues[i] != null) {
+                    cardButtons[i].setVisibility(View.VISIBLE);
+                    cardButtons[i].setText(gameManager.cardValues[i].toString());
+                    cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC"));
+                } else {
+                    cardButtons[i].setVisibility(View.INVISIBLE);
+                }
+            }
         }
         updateScoreBoard();
     }
+
 
     private void onCardClicked(int index) {
         if (gameManager == null) return;
@@ -183,10 +237,24 @@ public class MainActivity extends AppCompatActivity {
         tvAvgTime.setText("平均: " + avg + "s");
     }
 
+    // --- 核心修复：将 Modulus 传递给 Solver ---
     private String getFreshSolution() {
         List<Fraction> currentNums = getCurrentNumbers();
-        return (currentNums.isEmpty()) ? null : Solver.solve(currentNums);
+        if (currentNums.isEmpty()) return null;
+
+        Integer modulus = null;
+        if (gameManager != null) {
+            // 获取 GameManager 中的当前题目
+            Problem p = gameManager.getCurrentProblem();
+            if (p != null) {
+                modulus = p.modulus;
+            }
+        }
+
+        // 调用支持 Mod 的求解方法
+        return Solver.solve(currentNums, modulus);
     }
+    // ----------------------------------------
 
     private List<Fraction> getCurrentNumbers() {
         List<Fraction> currentNums = new ArrayList<>();
@@ -228,7 +296,6 @@ public class MainActivity extends AppCompatActivity {
         if (btnReset != null) btnReset.setOnClickListener(v -> { if (gameManager != null) gameManager.resetCurrentLevel(); refreshUI(); resetSelection(); if (tvMessage != null) tvMessage.setText(""); Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show(); });
         if (btnSkip != null) btnSkip.setOnClickListener(v -> startNewGameLocal());
 
-        // --- 核心修复：btnTry 的监听器 ---
         if (btnTry != null) btnTry.setOnClickListener(v -> {
             String sol = getFreshSolution();
             if (sol == null) {
@@ -236,9 +303,13 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // 1. 找到最内层的括号表达式
+            // --- 适配 Mod 格式的提示 ---
+            // 如果答案包含 "mod"，先去掉它再解析结构，或者只取最后一个括号
+            // 简单处理：移除 " mod 47" 后再找最内层括号
+            String cleanSol = sol.replaceAll(" mod \\d+", "");
+
             Pattern pattern = Pattern.compile("\\(([^()]+)\\)");
-            Matcher matcher = pattern.matcher(sol);
+            Matcher matcher = pattern.matcher(cleanSol);
             String innerExpr = null;
             if (matcher.find()) {
                 innerExpr = matcher.group(1).trim();
@@ -249,7 +320,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // 2. 解析表达式，找到左右数字
             String[] parts = innerExpr.split(" ");
             if (parts.length < 3) {
                 if (tvMessage != null) tvMessage.setText("无法解析提示");
@@ -258,7 +328,6 @@ public class MainActivity extends AppCompatActivity {
             String leftNum = parts[0];
             String rightNum = parts[2];
 
-            // 3. 查找并高亮对应的按钮
             int firstButtonIndex = -1;
             int secondButtonIndex = -1;
 
@@ -270,7 +339,6 @@ public class MainActivity extends AppCompatActivity {
             }
 
             for (int i = 0; i < gameManager.currentNumberCount; i++) {
-                // 确保不与第一个按钮重复
                 if (i != firstButtonIndex && cardButtons[i].getText().toString().equals(rightNum)) {
                     secondButtonIndex = i;
                     break;
@@ -278,8 +346,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (firstButtonIndex != -1 && secondButtonIndex != -1) {
-                cardButtons[firstButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
-                cardButtons[secondButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203)); // Pink
+                cardButtons[firstButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203));
+                cardButtons[secondButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203));
             } else {
                 if (tvMessage != null) tvMessage.setText("提示步骤匹配失败");
             }
@@ -290,6 +358,7 @@ public class MainActivity extends AppCompatActivity {
             if (sol != null) {
                 if (tvMessage != null) {
                     tvMessage.setText("结构: ");
+                    // ExpressionHelper 可能会被 "mod" 搞晕，这里只展示结构，暂不处理 mod 显示
                     tvMessage.append(ExpressionHelper.formatStructure(sol, getCurrentNumbers()));
                     lastPlainTextSolution = ExpressionHelper.getStructureAsPlainText(sol, getCurrentNumbers());
                 }
@@ -315,12 +384,9 @@ public class MainActivity extends AppCompatActivity {
 
         if (btnShare != null) {
             btnShare.setOnClickListener(v -> {
-                // 修改：使用新的 getShareText() 方法
                 String textToCopy = gameManager.getShareText();
-
                 if (textToCopy != null && !textToCopy.isEmpty()) {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    // ClipData 的标签可以改得更贴切一点，比如 "Hajimi24 Question"
                     ClipData clip = ClipData.newPlainText("Hajimi24 Question", textToCopy);
                     clipboard.setPrimaryClip(clip);
                     Toast.makeText(MainActivity.this, "题目已复制到剪贴板", Toast.LENGTH_SHORT).show();

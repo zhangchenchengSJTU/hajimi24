@@ -9,15 +9,6 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- 示例：在 Switch 列表上方添加这个 TextView -->
-        <TextView
-            android:id="@+id/tv_warning_random"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🚫 高质量出题不可用：请先加载题库文件"
-            android:textColor="#FF5252"
-            android:visibility="gone"
-            android:padding="8dp"/>
 
         <TextView
             android:layout_width="wrap_content"
@@ -26,6 +17,15 @@
             android:textSize="16sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/tv_warning_random"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🚫 高质量出题不可用：请先加载题库文件"
+            android:textColor="#FF5252"
+            android:visibility="gone"
+            android:padding="8dp"/>
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switch_avoid_add_sub"

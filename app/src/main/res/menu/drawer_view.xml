@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
-
+    <group android:id="@+id/group_settings">
+        <!-- ... 其他设置项 ... -->
+        <item
+            android:id="@+id/nav_theme"
+            android:title="主题设置"
+            android:icon="@android:drawable/ic_menu_day" />
+    </group>
     <!-- 您之前的菜单项，例如 -->
     <group android:id="@+id/group_modes" android:checkableBehavior="single">
         <item
@@ -50,29 +56,6 @@
             android:title="除法风暴"
             android:visible="false"
             app:actionViewClass="androidx.appcompat.widget.SwitchCompat" />
-    </group>
-
-    <group android:id="@+id/group_number_bounds" android:checkableBehavior="single">
-        <item
-            android:id="@+id/nav_header_bounds"
-            android:title="数字上界 (仅4整数)"
-            android:enabled="false" />
-        <item
-            android:id="@+id/nav_bound_unlimited"
-            android:title="不限"
-            android:checked="true" />
-        <item
-            android:id="@+id/nav_bound_9"
-            android:title="9" />
-        <item
-            android:id="@+id/nav_bound_10"
-            android:title="10" />
-        <item
-            android:id="@+id/nav_bound_13"
-            android:title="13" />
-        <item
-            android:id="@+id/nav_bound_20"
-            android:title="20" />
     </group>
 
 </menu>

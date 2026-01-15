@@ -13,7 +13,6 @@ import java.util.regex.Pattern;
 
 public class ExpressionHelper {
 
-    // --- 内部AST节点定义 ---
     private interface Node {
         String toHtml(Map<String, String> map, boolean isStructureMode);
         String toPlainText(Map<String, String> map, boolean isStructureMode);
@@ -29,15 +28,8 @@ public class ExpressionHelper {
             return (val != null) ? val : "";
         }
 
-        @Override
-        public String toHtml(Map<String, String> map, boolean isStructureMode) {
-            return getValue(map, isStructureMode);
-        }
-
-        @Override
-        public String toPlainText(Map<String, String> map, boolean isStructureMode) {
-            return getValue(map, isStructureMode);
-        }
+        @Override public String toHtml(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
+        @Override public String toPlainText(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
     }
 
     private static class OperatorNode implements Node {
@@ -57,93 +49,76 @@ public class ExpressionHelper {
             String leftStr = render(left, map, isStructureMode, isHtml);
             String rightStr = render(right, map, isStructureMode, isHtml);
             char displayOp = (op == '*') ? '×' : op;
-
-            String operatorStr;
-            if (isHtml) {
-                // 将颜色改回您期望的紫色
-                operatorStr = " <font color='#228B22'>" + displayOp + "</font> ";
-            } else {
-                operatorStr = " " + displayOp + " ";
-            }
-
+            String operatorStr = isHtml ? " <font color='#228B22'>" + displayOp + "</font> " : " " + displayOp + " ";
             if (left instanceof OperatorNode) leftStr = "(" + leftStr + ")";
             if (right instanceof OperatorNode) rightStr = "(" + rightStr + ")";
-
             return leftStr + operatorStr + rightStr;
         }
 
-        @Override
-        public String toHtml(Map<String, String> map, boolean isStructureMode) {
-            return process(map, isStructureMode, true);
-        }
-
-        @Override
-        public String toPlainText(Map<String, String> map, boolean isStructureMode) {
-            return process(map, isStructureMode, false);
-        }
+        @Override public String toHtml(Map<String, String> map, boolean isStructureMode) { return process(map, isStructureMode, true); }
+        @Override public String toPlainText(Map<String, String> map, boolean isStructureMode) { return process(map, isStructureMode, false); }
     }
 
-    // --- 公共接口 ---
-
-    public static Spanned formatAnswer(String expression, List<Fraction> numbers) {
-        return format(expression, numbers, false);
-    }
-
-    public static Spanned formatStructure(String expression, List<Fraction> numbers) {
-        return format(expression, numbers, true);
-    }
-
-    public static String getAnswerAsPlainText(String expression, List<Fraction> numbers) {
-        return getPlainText(expression, numbers, false);
-    }
-
-    public static String getStructureAsPlainText(String expression, List<Fraction> numbers) {
-        return getPlainText(expression, numbers, true);
-    }
-
-    // --- 私有核心方法 ---
+    public static Spanned formatAnswer(String expression, List<Fraction> numbers) { return format(expression, numbers, false); }
+    public static Spanned formatStructure(String expression, List<Fraction> numbers) { return format(expression, numbers, true); }
+    public static String getAnswerAsPlainText(String expression, List<Fraction> numbers) { return getPlainText(expression, numbers, false); }
+    public static String getStructureAsPlainText(String expression, List<Fraction> numbers) { return getPlainText(expression, numbers, true); }
 
     private static Spanned format(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return Html.fromHtml("", Html.FROM_HTML_MODE_LEGACY);
+
+        // --- 处理 Mod 显示 ---
+        String suffix = "";
+        if (expression.contains("mod")) {
+            // 提取 mod 部分用于显示，但从解析逻辑中移除
+            suffix = expression.substring(expression.indexOf("mod")); // e.g. "mod 47"
+            expression = expression.substring(0, expression.indexOf("mod")).trim();
+        }
+
         try {
             Map<String, String> placeholderMap = new HashMap<>();
             String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
             String html = root.toHtml(placeholderMap, isStructureMode);
+
+            // 将 mod 后缀加回去
+            if (!suffix.isEmpty()) {
+                html += " <b>" + suffix + "</b>";
+            }
             return Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY);
         } catch (Exception e) {
-            String fallback = isStructureMode ? "解析结构失败" : expression.replace("*", "×");
+            String fallback = isStructureMode ? "解析结构失败" : expression.replace("*", "×") + " " + suffix;
             return Html.fromHtml(fallback, Html.FROM_HTML_MODE_LEGACY);
         }
     }
 
     private static String getPlainText(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return "";
+
+        String suffix = "";
+        if (expression.contains("mod")) {
+            suffix = expression.substring(expression.indexOf("mod"));
+            expression = expression.substring(0, expression.indexOf("mod")).trim();
+        }
+
         try {
             Map<String, String> placeholderMap = new HashMap<>();
             String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
-            return root.toPlainText(placeholderMap, isStructureMode);
+            return root.toPlainText(placeholderMap, isStructureMode) + " " + suffix;
         } catch (Exception e) {
-            return isStructureMode ? "解析结构失败" : expression.replace("*", "×");
+            return (isStructureMode ? "解析结构失败" : expression.replace("*", "×")) + " " + suffix;
         }
     }
 
-    // --- 核心修复：100% 健壮的占位符创建方法 ---
     private static String createPlaceholders(String expression, List<Fraction> numbers, Map<String, String> map) {
         List<String> numStrList = new ArrayList<>();
-        for (Fraction f : numbers) {
-            numStrList.add(f.toString());
-        }
-        // 保证最长的（最复杂的）数字最先被匹配，避免 "3" 匹配到 "1/3" 的问题
+        for (Fraction f : numbers) numStrList.add(f.toString());
         Collections.sort(numStrList, (a, b) -> b.length() - a.length());
 
-        // 构建一个能匹配所有数字的正则表达式，例如 (1/3|1\+2i|8|3)
         StringBuilder patternBuilder = new StringBuilder();
         for (String s : numStrList) {
-            if (patternBuilder.length() > 0) {
-                patternBuilder.append("|");
-            }
+            if (patternBuilder.length() > 0) patternBuilder.append("|");
             patternBuilder.append(Pattern.quote(s));
         }
 
@@ -152,20 +127,22 @@ public class ExpressionHelper {
         StringBuffer sb = new StringBuffer();
         int i = 0;
 
-        // 循环查找并替换所有匹配到的数字
         while (matcher.find()) {
             String placeholder = "#" + i + "#";
-            String matchedNumber = matcher.group(0);
-            map.put(placeholder, matchedNumber);
+            map.put(placeholder, matcher.group(0));
             matcher.appendReplacement(sb, placeholder);
             i++;
         }
         matcher.appendTail(sb);
-
         return sb.toString();
     }
 
     private static Node parse(String expression) {
+        // --- 核心修复：移除 mod 以防止解析错误 (虽然上面已经移除，这里双重保险) ---
+        if (expression.contains("mod")) {
+            expression = expression.replaceAll("mod\\s*\\d+", "").trim();
+        }
+
         expression = expression.replaceAll("\\s", "");
         Stack<Node> values = new Stack<>();
         Stack<Character> ops = new Stack<>();

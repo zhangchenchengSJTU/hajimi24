@@ -4,4 +4,5 @@
         <!-- Customize your dark theme here. -->
         <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
     </style>
+    <color name="math_text_color">#AA6600</color>
 </resources>

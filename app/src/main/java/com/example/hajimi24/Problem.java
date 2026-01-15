@@ -5,13 +5,18 @@ import java.util.List;
 public class Problem {
     public List<Fraction> numbers;
     public String solution;
-    // 新增字段：存储原始题目字符串
     public String line;
+    // 新增：存储模数 (如果题目包含 mod)
+    public Integer modulus;
 
-    // 更新构造函数：接收 line 参数
     public Problem(List<Fraction> n, String s, String l) {
+        this(n, s, l, null);
+    }
+
+    public Problem(List<Fraction> n, String s, String l, Integer mod) {
         this.numbers = n;
         this.solution = s;
         this.line = l;
+        this.modulus = mod;
     }
 }
