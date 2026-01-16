@@ -186,10 +186,13 @@ public class MainActivity extends AppCompatActivity {
     private void refreshUI() {
         if (gameManager == null || cardButtons == null) return;
 
-        // 获取当前的模数 (可能为 null)
+        // 获取当前的模数和进制
         Integer modulus = null;
-        if (gameManager.getCurrentProblem() != null) {
-            modulus = gameManager.getCurrentProblem().modulus;
+        int currentRadix = 10;
+        Problem p = gameManager.getCurrentProblem();
+        if (p != null) {
+            modulus = p.modulus;
+            if (p.radix != null) currentRadix = p.radix;
         }
 
         int count = gameManager.currentNumberCount;
@@ -198,15 +201,16 @@ public class MainActivity extends AppCompatActivity {
             if (i >= count) {
                 cardButtons[i].setVisibility(View.GONE);
             } else {
-                if (gameManager.cardValues[i] != null) {
+                Fraction f = gameManager.cardValues[i];
+                if (f != null) {
                     cardButtons[i].setVisibility(View.VISIBLE);
 
-                    // 核心修复: 根据是否存在模数，选择不同的显示方式
+                    // 核心修改：确保调用带 radix 参数的方法，防止 A-F 被转换回数字
                     String text;
                     if (modulus != null) {
-                        text = gameManager.cardValues[i].toModString(modulus);
+                        text = f.toModString(modulus, currentRadix);
                     } else {
-                        text = gameManager.cardValues[i].toString();
+                        text = f.toString(currentRadix);
                     }
                     cardButtons[i].setText(text);
 
@@ -218,6 +222,7 @@ public class MainActivity extends AppCompatActivity {
         }
         updateScoreBoard();
     }
+
 
 
     private void onCardClicked(int index) {
@@ -263,24 +268,27 @@ public class MainActivity extends AppCompatActivity {
         tvAvgTime.setText("平均: " + avg + "s");
     }
 
-    // --- 核心修复：将 Modulus 传递给 Solver ---
     private String getFreshSolution() {
         List<Fraction> currentNums = getCurrentNumbers();
         if (currentNums.isEmpty()) return null;
 
         Integer modulus = null;
-        if (gameManager != null) {
-            // 获取 GameManager 中的当前题目
-            Problem p = gameManager.getCurrentProblem();
-            if (p != null) {
-                modulus = p.modulus;
+        int targetValue = 24; // 默认
+
+        Problem p = gameManager.getCurrentProblem();
+        if (p != null) {
+            modulus = p.modulus;
+            // 核心修复：进制模式下目标值动态化
+            if (p.radix != null) {
+                targetValue = 2 * p.radix + 4;
             }
         }
 
-        // 调用支持 Mod 的求解方法
-        return Solver.solve(currentNums, modulus);
+        // 调用支持 targetValue 的 Solver 方法
+        return Solver.solve(currentNums, modulus, targetValue);
     }
-    // ----------------------------------------
+
+
 
     private List<Fraction> getCurrentNumbers() {
         List<Fraction> currentNums = new ArrayList<>();
@@ -290,7 +298,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initListeners() {
+        // 侧边栏菜单
         if (btnMenu != null) btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+
+        // 消息区域长按复制
         if (tvMessage != null) {
             tvMessage.setOnLongClickListener(v -> {
                 String textToCopy = lastPlainTextSolution;
@@ -305,23 +316,44 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        if (cardButtons != null) for (int i = 0; i < 5; i++) {
-            final int idx = i;
-            if (cardButtons[i] != null) cardButtons[i].setOnClickListener(v -> onCardClicked(idx));
+        // 卡片按钮点击
+        if (cardButtons != null) {
+            for (int i = 0; i < 5; i++) {
+                final int idx = i;
+                if (cardButtons[i] != null) cardButtons[i].setOnClickListener(v -> onCardClicked(idx));
+            }
         }
 
+        // 四则运算符号选择
         View.OnClickListener opListener = v -> {
             String op = (v.getId() == R.id.btn_op_add) ? "+" : (v.getId() == R.id.btn_op_sub) ? "-" : (v.getId() == R.id.btn_op_mul) ? "*" : "/";
-            if (selectedFirstIndex == -1) return; resetOpColors();
-            if (op.equals(selectedOperator)) selectedOperator = null;
-            else { selectedOperator = op; v.setBackgroundColor(Color.BLUE); }
+            if (selectedFirstIndex == -1) return;
+            resetOpColors();
+            if (op.equals(selectedOperator)) {
+                selectedOperator = null;
+            } else {
+                selectedOperator = op;
+                v.setBackgroundColor(Color.BLUE);
+            }
         };
-        if (btnAdd != null) btnAdd.setOnClickListener(opListener); if (btnSub != null) btnSub.setOnClickListener(opListener); if (btnMul != null) btnMul.setOnClickListener(opListener); if (btnDiv != null) btnDiv.setOnClickListener(opListener);
+        if (btnAdd != null) btnAdd.setOnClickListener(opListener);
+        if (btnSub != null) btnSub.setOnClickListener(opListener);
+        if (btnMul != null) btnMul.setOnClickListener(opListener);
+        if (btnDiv != null) btnDiv.setOnClickListener(opListener);
+
+        // 撤销、重做、重置、跳过
         if (btnUndo != null) btnUndo.setOnClickListener(v -> { if(gameManager.undo()) { refreshUI(); resetSelection(); } });
         if (btnRedo != null) btnRedo.setOnClickListener(v -> { if(gameManager.redo()) { refreshUI(); resetSelection(); } });
-        if (btnReset != null) btnReset.setOnClickListener(v -> { if (gameManager != null) gameManager.resetCurrentLevel(); refreshUI(); resetSelection(); if (tvMessage != null) tvMessage.setText(""); Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show(); });
+        if (btnReset != null) btnReset.setOnClickListener(v -> {
+            if (gameManager != null) gameManager.resetCurrentLevel();
+            refreshUI();
+            resetSelection();
+            if (tvMessage != null) tvMessage.setText("");
+            Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show();
+        });
         if (btnSkip != null) btnSkip.setOnClickListener(v -> startNewGameLocal());
 
+        // 提示功能 (Hint/Try) - 核心修复：采用数值匹配方案
         if (btnTry != null) btnTry.setOnClickListener(v -> {
             String sol = getFreshSolution();
             if (sol == null) {
@@ -329,17 +361,20 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // --- 适配 Mod 格式的提示 ---
-            // 如果答案包含 "mod"，先去掉它再解析结构，或者只取最后一个括号
-            // 简单处理：移除 " mod 47" 后再找最内层括号
-            String cleanSol = sol.replaceAll(" mod \\d+", "");
+            // 获取当前题目的进制 (默认为 10)
+            int currentRadix = 10;
+            if (gameManager.getCurrentProblem() != null && gameManager.getCurrentProblem().radix != null) {
+                currentRadix = gameManager.getCurrentProblem().radix;
+            }
 
+            // 1. 移除 mod 和 base 后缀，确保正则能匹配到括号
+            String cleanSol = sol.replaceAll(" (mod|base) \\d+", "");
+
+            // 2. 寻找最内层括号的表达式
             Pattern pattern = Pattern.compile("\\(([^()]+)\\)");
             Matcher matcher = pattern.matcher(cleanSol);
             String innerExpr = null;
-            if (matcher.find()) {
-                innerExpr = matcher.group(1).trim();
-            }
+            if (matcher.find()) innerExpr = matcher.group(1).trim();
 
             if (innerExpr == null) {
                 if (tvMessage != null) tvMessage.setText("无法找到提示");
@@ -347,44 +382,51 @@ public class MainActivity extends AppCompatActivity {
             }
 
             String[] parts = innerExpr.split(" ");
-            if (parts.length < 3) {
-                if (tvMessage != null) tvMessage.setText("无法解析提示");
-                return;
-            }
-            String leftNum = parts[0];
-            String rightNum = parts[2];
+            if (parts.length < 3) return;
 
-            int firstButtonIndex = -1;
-            int secondButtonIndex = -1;
+            try {
+                // 3. 核心：将解法中的 Token 解析为数值对象进行比对，彻底避开 A 与 10 的字符串差异
+                Fraction leftTarget = Fraction.parse(parts[0], currentRadix);
+                Fraction rightTarget = Fraction.parse(parts[2], currentRadix);
 
-            for (int i = 0; i < gameManager.currentNumberCount; i++) {
-                if (cardButtons[i].getText().toString().equals(leftNum)) {
-                    firstButtonIndex = i;
-                    break;
+                int firstButtonIndex = -1;
+                int secondButtonIndex = -1;
+
+                // 4. 遍历当前卡片，通过数值判断（实部、虚部、分母）寻找匹配按钮
+                for (int i = 0; i < gameManager.currentNumberCount; i++) {
+                    Fraction cardF = gameManager.cardValues[i];
+                    if (cardF == null) continue;
+
+                    if (firstButtonIndex == -1 &&
+                            cardF.getRe() == leftTarget.getRe() &&
+                            cardF.getDe() == leftTarget.getDe() &&
+                            cardF.getIm() == leftTarget.getIm()) {
+                        firstButtonIndex = i;
+                    } else if (secondButtonIndex == -1 &&
+                            cardF.getRe() == rightTarget.getRe() &&
+                            cardF.getDe() == rightTarget.getDe() &&
+                            cardF.getIm() == rightTarget.getIm()) {
+                        secondButtonIndex = i;
+                    }
                 }
-            }
 
-            for (int i = 0; i < gameManager.currentNumberCount; i++) {
-                if (i != firstButtonIndex && cardButtons[i].getText().toString().equals(rightNum)) {
-                    secondButtonIndex = i;
-                    break;
+                if (firstButtonIndex != -1 && secondButtonIndex != -1) {
+                    cardButtons[firstButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203)); // 粉色高亮
+                    cardButtons[secondButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203));
+                } else {
+                    if (tvMessage != null) tvMessage.setText("提示匹配失败");
                 }
-            }
-
-            if (firstButtonIndex != -1 && secondButtonIndex != -1) {
-                cardButtons[firstButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203));
-                cardButtons[secondButtonIndex].setBackgroundColor(Color.rgb(255, 192, 203));
-            } else {
-                if (tvMessage != null) tvMessage.setText("提示步骤匹配失败");
+            } catch (Exception e) {
+                if (tvMessage != null) tvMessage.setText("解析提示步骤出错");
             }
         });
 
+        // 结构提示功能
         if (btnHintStruct != null) btnHintStruct.setOnClickListener(v -> {
             String sol = getFreshSolution();
             if (sol != null) {
                 if (tvMessage != null) {
                     tvMessage.setText("结构: ");
-                    // ExpressionHelper 可能会被 "mod" 搞晕，这里只展示结构，暂不处理 mod 显示
                     tvMessage.append(ExpressionHelper.formatStructure(sol, getCurrentNumbers()));
                     lastPlainTextSolution = ExpressionHelper.getStructureAsPlainText(sol, getCurrentNumbers());
                 }
@@ -394,6 +436,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // 完整答案功能
         if (btnAnswer != null) btnAnswer.setOnClickListener(v -> {
             String sol = getFreshSolution();
             if (sol != null) {
@@ -408,6 +451,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // 题目分享
         if (btnShare != null) {
             btnShare.setOnClickListener(v -> {
                 String textToCopy = gameManager.getShareText();
@@ -422,6 +466,8 @@ public class MainActivity extends AppCompatActivity {
             });
         }
     }
+
+
 
     private void resetOpColors() {
         if (btnAdd != null) btnAdd.setBackgroundColor(Color.LTGRAY); if (btnSub != null) btnSub.setBackgroundColor(Color.LTGRAY); if (btnMul != null) btnMul.setBackgroundColor(Color.LTGRAY); if (btnDiv != null) btnDiv.setBackgroundColor(Color.LTGRAY);

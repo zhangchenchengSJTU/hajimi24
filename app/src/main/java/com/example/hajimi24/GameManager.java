@@ -102,6 +102,13 @@ public class GameManager {
             case "/": result = f1.divide(f2); break;
         }
 
+        // --- 核心修复：使用正确的模运算逻辑 ---
+        if (currentProblem != null && currentProblem.modulus != null) {
+            // 不再只是 result.getRe() % m，而是完整的 (re * inv(de)) % mod
+            result = result.applyMod(currentProblem.modulus);
+        }
+        // ------------------------------------
+
         saveToUndo();
         redoStack.clear();
         cardValues[idx2] = result;
@@ -109,19 +116,21 @@ public class GameManager {
         return true;
     }
 
+
     public boolean checkWin() {
         int count = 0;
         Fraction last = null;
         for (Fraction f : cardValues) if (f != null) { count++; last = f; }
 
-        // 注意：如果是 Mod 题目，这里的 checkWin 逻辑可能也需要更新
-        // 目前先保持判断 24，因为大部分 Mod 题目也是凑 24
-        // 如果题目要求 Mod 运算后等于 24，那么这里 Fraction 的值应该是普通的整数 24
-        // 因为我们在做运算时 (GameManager.performCalculation) 并没有进行取模
-        // 所以用户在界面上操作得到的数字会越来越大，最后可能不等于 24
-        // *这是一个潜在问题*，但目前先解决 Crash 和无解提示问题。
+        if (count != 1 || last == null) return false;
 
-        return count == 1 && last != null && last.isValue(24);
+        // 核心修改：计算目标值。如果是 base 题目，目标是 2*radix + 4 (即对应进制下的 "24")
+        int targetValue = 24;
+        if (currentProblem != null && currentProblem.radix != null) {
+            targetValue = 2 * currentProblem.radix + 4;
+        }
+
+        return last.isValue(targetValue);
     }
 
     private void saveToUndo() {
@@ -162,8 +171,7 @@ public class GameManager {
         List<Fraction> nums = new ArrayList<>();
         for (Fraction f : cardValues) if (f != null) nums.add(f);
 
-        // 这里也需要 Mod 支持，但为了简单，先调用不带 Mod 的求解
-        // 如果需要，这里也应该调用 Solver.solve(nums, currentProblem.modulus)
+        // 这里也需要 Mod 支持
         Integer mod = (currentProblem != null) ? currentProblem.modulus : null;
         return Solver.solve(nums, mod);
     }
@@ -186,7 +194,14 @@ public class GameManager {
             if (i > 0) sb.append(", ");
             if (initialValues[i] != null) sb.append(initialValues[i].toString());
         }
-        sb.append(" 如何计算 24 点?");
+
+        // 分进制显示目标
+        if (currentProblem != null && currentProblem.radix != null) {
+            sb.append(" 如何计算 ").append(currentProblem.radix).append(" 进制下的 24?");
+        } else {
+            sb.append(" 如何计算 24 点?");
+        }
+
         return sb.toString();
     }
 }

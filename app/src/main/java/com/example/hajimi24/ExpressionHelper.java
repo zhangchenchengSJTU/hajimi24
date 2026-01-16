@@ -67,12 +67,14 @@ public class ExpressionHelper {
     private static Spanned format(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return Html.fromHtml("", Html.FROM_HTML_MODE_LEGACY);
 
-        // --- 处理 Mod 显示 ---
+        // --- 核心修改：统一处理 Mod/Base 后缀显示 ---
         String suffix = "";
-        if (expression.contains("mod")) {
-            // 提取 mod 部分用于显示，但从解析逻辑中移除
-            suffix = expression.substring(expression.indexOf("mod")); // e.g. "mod 47"
-            expression = expression.substring(0, expression.indexOf("mod")).trim();
+        // 匹配 mod n 或 base n (甚至两者并存)
+        Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
+        Matcher m = p.matcher(expression);
+        if (m.find()) {
+            suffix = m.group().trim();
+            expression = expression.substring(0, m.start()).trim();
         }
 
         try {
@@ -81,7 +83,7 @@ public class ExpressionHelper {
             Node root = parse(placeholderExpression);
             String html = root.toHtml(placeholderMap, isStructureMode);
 
-            // 将 mod 后缀加回去
+            // 将后缀加回去
             if (!suffix.isEmpty()) {
                 html += " <b>" + suffix + "</b>";
             }
@@ -96,9 +98,11 @@ public class ExpressionHelper {
         if (expression == null) return "";
 
         String suffix = "";
-        if (expression.contains("mod")) {
-            suffix = expression.substring(expression.indexOf("mod"));
-            expression = expression.substring(0, expression.indexOf("mod")).trim();
+        Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
+        Matcher m = p.matcher(expression);
+        if (m.find()) {
+            suffix = m.group().trim();
+            expression = expression.substring(0, m.start()).trim();
         }
 
         try {
@@ -113,6 +117,7 @@ public class ExpressionHelper {
 
     private static String createPlaceholders(String expression, List<Fraction> numbers, Map<String, String> map) {
         List<String> numStrList = new ArrayList<>();
+        // 注意：由于 Fraction.toString() 已能自动按进制返回字符，这里能正确匹配 'A'
         for (Fraction f : numbers) numStrList.add(f.toString());
         Collections.sort(numStrList, (a, b) -> b.length() - a.length());
 
@@ -138,10 +143,8 @@ public class ExpressionHelper {
     }
 
     private static Node parse(String expression) {
-        // --- 核心修复：移除 mod 以防止解析错误 (虽然上面已经移除，这里双重保险) ---
-        if (expression.contains("mod")) {
-            expression = expression.replaceAll("mod\\s*\\d+", "").trim();
-        }
+        // --- 核心修改：剥离后缀防止解析非法字符 ---
+        expression = expression.replaceAll("(mod|base)\\s*\\d+.*", "").trim();
 
         expression = expression.replaceAll("\\s", "");
         Stack<Node> values = new Stack<>();

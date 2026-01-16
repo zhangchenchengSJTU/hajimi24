@@ -88,6 +88,10 @@ public class ProblemRepository {
                 String content = downloadStringWithProgress(url, callback);
                 if (content == null) throw new Exception("文件内容下载失败");
 
+                // --- 新增：保存到本地 ---
+                saveFileToInternalStorage(filePath, content);
+                // -----------------------
+
                 List<Problem> problems = parseContentToProblems(content, filePath, settings);
                 if (callback != null) callback.onSuccess(problems, filePath);
             } catch (Exception e) {
@@ -95,6 +99,66 @@ public class ProblemRepository {
             }
         }).start();
     }
+
+    private void saveFileToInternalStorage(String filePath, String content) {
+        try {
+            File file = new File(context.getFilesDir(), filePath);
+            // 如果包含文件夹路径，先创建父目录
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+
+            java.io.FileWriter writer = new java.io.FileWriter(file);
+            writer.write(content);
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // 1. 递归获取本地文件 (支持子文件夹)
+    public void fetchLocalFileTree(MenuDataCallback callback) {
+        new Thread(() -> {
+            List<RemoteFile> result = new ArrayList<>();
+            try {
+                // 扫描内部存储
+                File dataDir = new File(context.getFilesDir(), "data");
+                if (dataDir.exists()) {
+                    scanLocalDirectory(dataDir, "data/", result);
+                }
+
+                // 扫描 Assets (Assets 扫描比较特殊，仅扫描一级 data 目录作为演示，
+                // 建议将下载的文件与内置文件路径统一)
+                String[] assetFiles = context.getAssets().list("data");
+                if (assetFiles != null) {
+                    for (String fileName : assetFiles) {
+                        if (fileName.endsWith(".txt")) {
+                            String path = "data/" + fileName;
+                            boolean exists = false;
+                            for(RemoteFile rf : result) if(rf.path.equals(path)) exists = true;
+                            if(!exists) result.add(new RemoteFile(path, fileName));
+                        }
+                    }
+                }
+
+                if (callback != null) callback.onSuccess(result);
+            } catch (Exception e) {
+                if (callback != null) callback.onFail(e.getMessage());
+            }
+        }).start();
+    }
+    // 辅助方法：递归遍历文件夹
+    private void scanLocalDirectory(File dir, String prefix, List<RemoteFile> result) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                scanLocalDirectory(f, prefix + f.getName() + "/", result);
+            } else if (f.getName().endsWith(".txt")) {
+                result.add(new RemoteFile(prefix + f.getName(), f.getName()));
+            }
+        }
+    }
+
 
     private List<Problem> parseContentToProblems(String content, String fileName, GameModeSettings settings) {
         List<Problem> list = new ArrayList<>();
@@ -118,12 +182,13 @@ public class ProblemRepository {
     // ==========================================
     //  网络下载辅助
     // ==========================================
-
     private String downloadString(String urlString) {
-        try { return downloadStringWithProgress(urlString, null); }
-        catch (IOException e) { return null; }
+        try {
+            return downloadStringWithProgress(urlString, null);
+        } catch (IOException e) {
+            return null;
+        }
     }
-
     private String downloadStringWithProgress(String urlString, FileDownloadCallback callback) throws IOException {
         HttpURLConnection connection = null;
         InputStream stream = null;
@@ -134,7 +199,7 @@ public class ProblemRepository {
             connection.setConnectTimeout(5000);
             connection.connect();
 
-            int length = connection.getContentLength();
+            int length = connection.getContentLength(); // 注意：GitHub 可能返回 -1
             stream = connection.getInputStream();
             baos = new ByteArrayOutputStream();
 
@@ -146,16 +211,24 @@ public class ProblemRepository {
                 baos.write(buffer, 0, bytesRead);
                 totalBytesRead += bytesRead;
 
-                if (length > 0 && callback != null) {
-                    int percent = (int) ((totalBytesRead * 100L) / length);
-                    callback.onProgress(percent);
+                if (callback != null) {
+                    if (length > 0) {
+                        int percent = (int) ((totalBytesRead * 100L) / length);
+                        callback.onProgress(percent);
+                    } else {
+                        // 如果拿不到长度，发送一个 -1 标志，让 UI 显示不确定进度
+                        callback.onProgress(-1);
+                    }
                 }
             }
+            // 结束时强制 100%
+            if (callback != null) callback.onProgress(100);
+
             return baos.toString("UTF-8");
         } finally {
             if (connection != null) connection.disconnect();
-            if (stream != null) stream.close();
-            if (baos != null) baos.close();
+            if (stream != null) try { stream.close(); } catch (Exception e) {}
+            if (baos != null) try { baos.close(); } catch (Exception e) {}
         }
     }
 
@@ -376,10 +449,6 @@ public class ProblemRepository {
         return null;
     }
 
-    private Fraction parseTokenToFraction(String token) {
-        return parseTokenToFraction(token, 10);
-    }
-
     private Fraction parseTokenToFraction(String token, int radix) {
         token = token.replace("(", "").replace(")", "");
         if (token.contains("i")) {
@@ -396,18 +465,56 @@ public class ProblemRepository {
                 else if (imagStr.equals("-")) imagPart = -1;
                 else imagPart = Long.parseLong(imagStr, radix);
             }
-            return new Fraction(realPart, imagPart, 1);
+            // 使用 4 参数构造函数: (实部, 虚部, 分母, 进制)
+            return new Fraction(realPart, imagPart, 1, radix);
         } else if (token.contains("/")) {
             String[] fp = token.split("/");
-            return new Fraction(Long.parseLong(fp[0], radix), Long.parseLong(fp[1], radix));
+            // 使用 4 参数构造函数，虚部强制设为 0
+            return new Fraction(Long.parseLong(fp[0], radix), 0, Long.parseLong(fp[1], radix), radix);
         } else {
-            try { return new Fraction(Long.parseLong(token, radix), 1); } catch (Exception e) { return new Fraction(0, 1); }
+            try {
+                // 使用 4 参数构造函数，虚部设为 0，分母设为 1
+                return new Fraction(Long.parseLong(token, radix), 0, 1, radix);
+            } catch (Exception e) {
+                return new Fraction(0, 0, 1, radix);
+            }
+        }
+    }
+    // 1. 检查本地是否已存在该文件
+    public boolean isFileDownloaded(String filePath) {
+        File file = new File(context.getFilesDir(), filePath);
+        return file.exists() && file.length() > 0;
+    }
+
+    // 2. 同步下载方法 (供批量下载线程调用)
+    public void downloadFileSync(String filePath) {
+        try {
+            String encodedPath = filePath.replace(" ", "%20");
+            String url = GITHUB_RAW_BASE + encodedPath;
+
+            // 调用现有的下载逻辑，但不传入进度回调
+            String content = downloadString(url);
+            if (content != null) {
+                saveFileToInternalStorage(filePath, content);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     private InputStream getFileInputStream(String fileName) throws IOException {
+        // 1. 先尝试从应用内部存储空间读取 (用户下载的)
         File file = new File(context.getFilesDir(), fileName);
-        if (file.exists()) return new FileInputStream(file);
-        return null;
+        if (file.exists()) {
+            return new FileInputStream(file);
+        }
+
+        // 2. 如果不存在，尝试从 APK 的 assets 目录读取 (内置的)
+        try {
+            return context.getAssets().open(fileName);
+        } catch (IOException e) {
+            // 都不存在则返回 null
+            return null;
+        }
     }
 }
