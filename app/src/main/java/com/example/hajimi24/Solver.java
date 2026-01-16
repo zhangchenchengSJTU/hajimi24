@@ -60,6 +60,28 @@ public class Solver {
         String str;
         Expr(Fraction v, String s) { val=v; str=s; }
     }
+    /**
+     * 支持进制输入的求解入口
+     * @param inputs 原始字符串列表，如 ["1", "1", "2", "11"]
+     * @param radix  进制，如 8 或 16
+     */
+    public static List<String> solveWithRadix(List<String> inputs, int radix) {
+        Set<String> resultSet = new HashSet<>();
+        List<Expr> list = new ArrayList<>();
+
+        for (String inputStr : inputs) {
+            // 1. 使用指定进制解析数值
+            Fraction val = Fraction.parse(inputStr, radix);
+
+            // 2. 【关键】构造 Expr 时，使用原始字符串 inputStr
+            // 这样后续的运算拼接（如 a + b）就会使用 "11" 而不是 "9"
+            list.add(new Expr(val, inputStr));
+        }
+
+        // 调用现有的递归逻辑
+        solveExprAll(list, resultSet);
+        return new ArrayList<>(resultSet);
+    }
 
     private static String solveRecFromFractions(List<Fraction> nums) {
         List<Expr> list = new ArrayList<>();

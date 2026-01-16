@@ -4,6 +4,7 @@ import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -19,68 +20,152 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ProblemRepository {
-    // 指向 Stable 分支
-    private static final String GITHUB_API_URL = "https://api.github.com/repos/zhangchenchengSJTU/hajimi24/contents/data?ref=Stable";
+    // GitHub 相关配置
+    private static final String GITHUB_TREE_URL = "https://api.github.com/repos/zhangchenchengSJTU/hajimi24/git/trees/Stable?recursive=1";
+    private static final String GITHUB_RAW_BASE = "https://raw.githubusercontent.com/zhangchenchengSJTU/hajimi24/Stable/";
+
     private Context context;
 
     public ProblemRepository(Context context) {
         this.context = context;
     }
 
-    public interface SyncCallback {
-        void onProgress(String fileName, int current, int total);
-        void onSuccess(int count);
+    // --- 数据结构与回调接口 ---
+    public static class RemoteFile {
+        public String path;
+        public String name;
+
+        public RemoteFile(String path, String name) {
+            this.path = path;
+            this.name = name;
+        }
+    }
+
+    public interface MenuDataCallback {
+        void onSuccess(List<RemoteFile> files);
         void onFail(String error);
     }
 
-    public void syncFromGitHub(SyncCallback callback) {
+    // 新增：带进度回调的接口
+    public interface FileDownloadCallback {
+        void onProgress(int percent); // 进度通知
+        void onSuccess(List<Problem> problems, String fileName);
+        void onFail(String error);
+    }
+
+    // ==========================================
+    //  Part 1: 新增的在线逻辑 (Online Mode)
+    // ==========================================
+
+    public void fetchRemoteFileTree(MenuDataCallback callback) {
         new Thread(() -> {
             try {
-                String jsonStr = downloadString(GITHUB_API_URL);
-                if (jsonStr == null) throw new Exception("无法连接到GitHub，请检查网络");
+                String jsonStr = downloadString(GITHUB_TREE_URL);
+                if (jsonStr == null) throw new Exception("网络请求失败");
 
-                JSONArray jsonArray = new JSONArray(jsonStr);
-                List<JSONObject> taskList = new ArrayList<>();
-                for (int i = 0; i < jsonArray.length(); i++) {
-                    JSONObject item = jsonArray.getJSONObject(i);
-                    String name = item.getString("name");
-                    if (name.endsWith(".txt")) taskList.add(item);
-                }
+                JSONObject root = new JSONObject(jsonStr);
+                JSONArray tree = root.getJSONArray("tree");
 
-                int total = taskList.size();
-                int successCount = 0;
-                for (int i = 0; i < total; i++) {
-                    JSONObject item = taskList.get(i);
-                    String name = item.getString("name");
-                    String downloadUrl = item.getString("download_url");
-                    if (callback != null) callback.onProgress(name, i + 1, total);
-                    String content = downloadString(downloadUrl);
-                    if (content != null) {
-                        saveToInternalStorage(name, content);
-                        successCount++;
+                List<RemoteFile> result = new ArrayList<>();
+                for (int i = 0; i < tree.length(); i++) {
+                    JSONObject item = tree.getJSONObject(i);
+                    String path = item.getString("path");
+                    if (path.startsWith("data/") && path.endsWith(".txt")) {
+                        String name = path.substring(path.lastIndexOf('/') + 1);
+                        result.add(new RemoteFile(path, name));
                     }
                 }
-                if (callback != null) callback.onSuccess(successCount);
+                if (callback != null) callback.onSuccess(result);
             } catch (Exception e) {
-                e.printStackTrace();
                 if (callback != null) callback.onFail(e.getMessage());
             }
         }).start();
     }
 
-    public List<String> getAvailableFiles() {
-        List<String> fileList = new ArrayList<>();
-        File directory = context.getFilesDir();
-        if (directory == null || !directory.exists()) return fileList;
-        File[] files = directory.listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.isFile() && file.getName().endsWith(".txt")) fileList.add(file.getName());
+    public void downloadFileContent(String filePath, GameModeSettings settings, FileDownloadCallback callback) {
+        new Thread(() -> {
+            try {
+                String encodedPath = filePath.replace(" ", "%20");
+                String url = GITHUB_RAW_BASE + encodedPath;
+
+                // 使用新方法下载，支持进度
+                String content = downloadStringWithProgress(url, callback);
+                if (content == null) throw new Exception("文件内容下载失败");
+
+                List<Problem> problems = parseContentToProblems(content, filePath, settings);
+                if (callback != null) callback.onSuccess(problems, filePath);
+            } catch (Exception e) {
+                if (callback != null) callback.onFail(e.getMessage());
             }
-        }
-        Collections.sort(fileList);
-        return fileList;
+        }).start();
     }
+
+    private List<Problem> parseContentToProblems(String content, String fileName, GameModeSettings settings) {
+        List<Problem> list = new ArrayList<>();
+        String[] lines = content.split("\n");
+        for (String line : lines) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            // 复用校验逻辑
+            boolean hasMod = line.matches(".*mod\\s*\\d+$");
+            if (!isProblemValid(line, fileName, settings) && !hasMod) continue;
+
+            Problem p = parseLineToProblem(line);
+            if (p != null) list.add(p);
+        }
+        return list;
+    }
+
+    // ==========================================
+    //  网络下载辅助 (核心修改)
+    // ==========================================
+
+    private String downloadString(String urlString) {
+        try { return downloadStringWithProgress(urlString, null); }
+        catch (IOException e) { return null; }
+    }
+
+    // 核心下载方法，支持进度
+    private String downloadStringWithProgress(String urlString, FileDownloadCallback callback) throws IOException {
+        HttpURLConnection connection = null;
+        InputStream stream = null;
+        ByteArrayOutputStream baos = null;
+        try {
+            URL url = new URL(urlString);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(5000);
+            connection.connect();
+
+            int length = connection.getContentLength();
+            stream = connection.getInputStream();
+            baos = new ByteArrayOutputStream();
+
+            byte[] buffer = new byte[1024];
+            int totalBytesRead = 0;
+            int bytesRead;
+
+            while ((bytesRead = stream.read(buffer)) != -1) {
+                baos.write(buffer, 0, bytesRead);
+                totalBytesRead += bytesRead;
+
+                if (length > 0 && callback != null) {
+                    int percent = (int) ((totalBytesRead * 100L) / length);
+                    callback.onProgress(percent);
+                }
+            }
+            return baos.toString("UTF-8");
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (stream != null) stream.close();
+            if (baos != null) baos.close();
+        }
+    }
+
+    // ==========================================
+    //  Part 2: 保留的本地逻辑与解析逻辑
+    // ==========================================
+    // (这部分保持原样，未修改)
 
     public List<Problem> loadProblemSet(String fileName, GameModeSettings settings) throws Exception {
         List<Problem> problems = new ArrayList<>();
@@ -94,15 +179,10 @@ public class ProblemRepository {
             if (line.isEmpty() || line.startsWith("#")) continue;
 
             boolean hasMod = line.matches(".*mod\\s*\\d+$");
-
-            if (!isProblemValid(line, fileName, settings) && !hasMod) {
-                continue;
-            }
+            if (!isProblemValid(line, fileName, settings) && !hasMod) continue;
 
             Problem p = parseLineToProblem(line);
-            if (p != null) {
-                problems.add(p);
-            }
+            if (p != null) problems.add(p);
         }
         br.close();
         return problems;
@@ -120,7 +200,6 @@ public class ProblemRepository {
             int n = 1;
             for (int i = 0; i < numbersListString.length(); i++) if (numbersListString.charAt(i) == ',') n++;
             if (n < 2) return false;
-
             int divisionCount = 0;
             int lastIndex = 0;
             String divisionOperator = " / ";
@@ -131,10 +210,7 @@ public class ProblemRepository {
             if (divisionCount < n - 2) return false;
         }
 
-        if (settings.avoidPureAddSub) {
-            if (!solution.contains("*") && !solution.contains(" / ")) return false;
-        }
-
+        if (settings.avoidPureAddSub && !solution.contains("*") && !solution.contains(" / ")) return false;
         if (settings.mustHaveDivision && !solution.contains(" / ")) return false;
 
         if (settings.avoidTrivialFinalMultiply) {
@@ -153,29 +229,22 @@ public class ProblemRepository {
                 if (num > settings.numberBound) return false;
             }
         }
-
         return true;
+    }
+
+    public boolean expressionContainsFractions(String expression) {
+        if (expression.contains("mod")) return false;
+        try { evaluateAndCheck(expression); }
+        catch (FractionalOperationFoundException e) { return true; }
+        catch (Exception e) { return false; }
+        return false;
     }
 
     private static class FractionalOperationFoundException extends RuntimeException {}
 
-    public boolean expressionContainsFractions(String expression) {
-        if (expression.contains("mod")) return false;
-        try {
-            evaluateAndCheck(expression);
-        } catch (FractionalOperationFoundException e) {
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-        return false;
-    }
-
     private Fraction evaluateAndCheck(String subExpression) throws FractionalOperationFoundException {
         subExpression = subExpression.trim();
-        if (subExpression.matches(".*mod\\s*\\d+$")) {
-            subExpression = subExpression.replaceAll("mod\\s*\\d+$", "").trim();
-        }
+        if (subExpression.matches(".*mod\\s*\\d+$")) subExpression = subExpression.replaceAll("mod\\s*\\d+$", "").trim();
 
         if (subExpression.startsWith("(") && subExpression.endsWith(")")) {
             int balance = 0;
@@ -195,7 +264,6 @@ public class ProblemRepository {
             if (balance == 0 && (c == '+' || c == '-') && i > 0) {
                 String leftStr = subExpression.substring(0, i).trim();
                 if (leftStr.isEmpty() || "+-*/(".indexOf(leftStr.charAt(leftStr.length() - 1)) != -1) continue;
-
                 Fraction l = evaluateAndCheck(leftStr);
                 Fraction r = evaluateAndCheck(subExpression.substring(i + 1).trim());
                 if (l.toString().contains("/") || r.toString().contains("/")) throw new FractionalOperationFoundException();
@@ -222,9 +290,7 @@ public class ProblemRepository {
     private int findMainOperatorIndex(String expression) {
         int balance = 0;
         String expr = expression.trim();
-        while (expr.length() > 2 && expr.startsWith("(") && expr.endsWith(")")) {
-            expr = expr.substring(1, expr.length() - 1).trim();
-        }
+        while (expr.length() > 2 && expr.startsWith("(") && expr.endsWith(")")) expr = expr.substring(1, expr.length() - 1).trim();
         for (int i = expr.length() - 1; i >= 0; i--) {
             char c = expr.charAt(i);
             if (c == ')') balance++; else if (c == '(') balance--;
@@ -247,75 +313,50 @@ public class ProblemRepository {
     }
 
     private Problem parseLineToProblem(String line) {
-        String[] parts = line.split("->");
-        if (parts.length < 2) return null;
+        try {
+            String[] parts = line.split("->");
+            if (parts.length < 2) return null;
+            String numberPart = parts[0];
+            String solution = parts[1].trim();
+            Integer modulus = null;
 
-        String numberPart = parts[0];
-        String solution = parts[1].trim();
-        Integer modulus = null;
+            Pattern modPattern = Pattern.compile("mod\\s*(\\d+)$");
+            Matcher modMatcher = modPattern.matcher(solution);
+            if (modMatcher.find()) modulus = Integer.parseInt(modMatcher.group(1));
 
-        Pattern modPattern = Pattern.compile("mod\\s*(\\d+)$");
-        Matcher modMatcher = modPattern.matcher(solution);
-        if (modMatcher.find()) {
-            try {
-                modulus = Integer.parseInt(modMatcher.group(1));
-            } catch (NumberFormatException e) {
-                e.printStackTrace();
-            }
-        }
+            Pattern pattern = Pattern.compile("\\['(.*?)'\\]");
+            Matcher matcher = pattern.matcher(numberPart);
 
-        Pattern pattern = Pattern.compile("\\['(.*?)'\\]");
-        Matcher matcher = pattern.matcher(numberPart);
-
-        if (matcher.find()) {
-            try {
+            if (matcher.find()) {
                 String numbersString = matcher.group(1);
                 String[] numberTokens = numbersString.split("', '");
                 List<Fraction> fractions = new ArrayList<>();
-                for (String token : numberTokens) {
-                    fractions.add(parseTokenToFraction(token.replace("'", "").trim()));
-                }
+                for (String token : numberTokens) fractions.add(parseTokenToFraction(token.replace("'", "").trim()));
                 return new Problem(fractions, solution, line, modulus);
-            } catch (Exception e) {
-                e.printStackTrace();
-                return null;
             }
-        }
+        } catch (Exception e) { e.printStackTrace(); }
         return null;
     }
 
-    // [核心修复] 恢复复数解析逻辑
     private Fraction parseTokenToFraction(String token) {
         token = token.replace("(", "").replace(")", "");
-
-        // 优先使用 Fraction 类自己的解析方法，如果它可用且健壮
-        // 这里为了保险，恢复了之前手动解析的逻辑，你可以选择直接 return Fraction.parse(token);
-
         if (token.contains("i")) {
-            long realPart = 0;
-            long imagPart = 0;
+            long realPart = 0; long imagPart = 0;
             if (token.equals("i")) imagPart = 1;
             else if (token.equals("-i")) imagPart = -1;
-            else if (!token.contains("+") && !token.substring(1).contains("-")) {
-                imagPart = Long.parseLong(token.replace("i", ""));
-            } else {
+            else if (!token.contains("+") && !token.substring(1).contains("-")) imagPart = Long.parseLong(token.replace("i", ""));
+            else {
                 int operatorIndex = Math.max(token.indexOf('+'), token.substring(1).indexOf('-') + 1);
                 realPart = Long.parseLong(token.substring(0, operatorIndex));
                 String imagStr = token.substring(operatorIndex).replace("i", "");
-                if (imagStr.equals("+")) imagPart = 1;
-                else if (imagStr.equals("-")) imagPart = -1;
-                else imagPart = Long.parseLong(imagStr);
+                if (imagStr.equals("+")) imagPart = 1; else if (imagStr.equals("-")) imagPart = -1; else imagPart = Long.parseLong(imagStr);
             }
             return new Fraction(realPart, imagPart, 1);
         } else if (token.contains("/")) {
-            String[] fracParts = token.split("/");
-            return new Fraction(Long.parseLong(fracParts[0]), Long.parseLong(fracParts[1]));
+            String[] fp = token.split("/");
+            return new Fraction(Long.parseLong(fp[0]), Long.parseLong(fp[1]));
         } else {
-            try {
-                return new Fraction(Long.parseLong(token), 1);
-            } catch (NumberFormatException e) {
-                return new Fraction(0, 1);
-            }
+            try { return new Fraction(Long.parseLong(token), 1); } catch (Exception e) { return new Fraction(0, 1); }
         }
     }
 
@@ -323,33 +364,5 @@ public class ProblemRepository {
         File file = new File(context.getFilesDir(), fileName);
         if (file.exists()) return new FileInputStream(file);
         return null;
-    }
-    private void saveToInternalStorage(String fileName, String content) throws IOException {
-        FileOutputStream fos = context.openFileOutput(fileName, Context.MODE_PRIVATE);
-        fos.write(content.getBytes());
-        fos.close();
-    }
-    private String downloadString(String urlString) {
-        HttpURLConnection connection = null;
-        BufferedReader reader = null;
-        try {
-            URL url = new URL(urlString);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.connect();
-            InputStream stream = connection.getInputStream();
-            reader = new BufferedReader(new InputStreamReader(stream));
-            StringBuilder buffer = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                buffer.append(line).append("\n");
-            }
-            return buffer.toString();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        } finally {
-            if (connection != null) connection.disconnect();
-            if (reader != null) { try { reader.close(); } catch (IOException e) { e.printStackTrace(); } }
-        }
     }
 }

@@ -101,20 +101,30 @@ public class MainActivity extends AppCompatActivity {
 
     private void initHelpers() {
         NavigationView navView = findViewById(R.id.nav_view);
+        // Correctly pass parameters
         sidebarLogic = new SidebarLogic(this, drawerLayout, navView, repository, new SidebarLogic.ActionCallback() {
             @Override
             public void onRandomMode(int count) {
                 switchToRandomMode(count);
             }
+
             @Override
-            public void onLoadFile(String fileName) {
-                loadProblemSet(fileName);
+            public void onLoadProblems(List<Problem> problems, String title) {
+                // Directly set the problem set without loading from local file
+                gameManager.setProblemSet(problems);
+                // Remove path prefix for cleaner display
+                currentFileName = title.replace("data/", "").replace(".txt", "");
+                btnMenu.setText("☰ 模式: " + currentFileName);
+                Toast.makeText(MainActivity.this, "加载成功", Toast.LENGTH_SHORT).show();
+                startNewGameLocal();
             }
+
             @Override
             public void onSettingsChanged() {
-                if (currentFileName != null && !currentFileName.startsWith("随机")) {
-                    loadProblemSet(currentFileName + ".txt");
-                }
+                // If it is file mode, you might want to reload.
+                // In Online Mode, since we don't save to file, we can either re-download or just ignore.
+                // For now, let's just toast.
+                Toast.makeText(MainActivity.this, "设置已更新 (下一次加载题目生效)", Toast.LENGTH_SHORT).show();
             }
         });
         sidebarLogic.setup();
