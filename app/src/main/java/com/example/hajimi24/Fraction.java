@@ -98,10 +98,6 @@ public class Fraction {
         }
 
         return new Fraction(nRe, nIm, nDe);
-
-
-
-
     }
 
     // 复数加法
@@ -129,23 +125,12 @@ public class Fraction {
                 this.re * o.im + this.im * o.re,
                 this.de * o.de
         );
-
-
     }
 
     // 复数除法: (a+bi)/(c+di) = (a+bi)(c-di) / (c^2+d^2)
     public Fraction divide(Fraction o) {
         long denomTerm = o.re * o.re + o.im * o.im;
         if (denomTerm == 0) throw new ArithmeticException("Divide by zero complex");
-
-        // 分子 = (re+im*i) * o.de * (o.re-o.im*i)
-        // 分母 = de * o.de^2 * (o.re^2/o.de^2 + o.im^2/o.de^2)
-        // 简化公式： A/B = (n1/d1) / (n2/d2) = (n1 * d2) / (d1 * n2)
-        // n1 * conj(n2) / (d1 * n2 * conj(n2)) * d2 ?
-        // 标准推导: (re/de + im/de i) / (ore/ode + oim/ode i)
-        // 结果的分子实部: (re * ore + im * oim) * ode
-        // 结果的分子虚部: (im * ore - re * oim) * ode
-        // 结果的分母: de * (ore^2 + oim^2)
 
         long newRe = (this.re * o.re + this.im * o.im) * o.de;
         long newIm = (this.im * o.re - this.re * o.im) * o.de;
@@ -186,17 +171,62 @@ public class Fraction {
             }
         }
 
-
         return sb.toString();
+    }
 
+    /**
+     * 计算特定模数下的显示字符串 (例如 1/2 mod 37 -> 19)
+     */
+    public String toModString(int mod) {
+        try {
+            // 计算分母的模逆元
+            long invDe = modInverse(de, mod);
 
+            // 将分子实部和虚部转换到 [0, mod-1] 范围
+            long valRe = (re % mod + mod) % mod;
+            long valIm = (im % mod + mod) % mod;
 
+            // 乘以逆元
+            valRe = (valRe * invDe) % mod;
+            valIm = (valIm * invDe) % mod;
 
+            StringBuilder sb = new StringBuilder();
+            if (valIm == 0) {
+                sb.append(valRe);
+            } else {
+                if (valRe != 0) sb.append(valRe).append("+");
 
+                if (valIm == 1) sb.append("i");
+                else sb.append(valIm).append("i");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // 如果逆元不存在（例如分母是模数的倍数），回退到普通显示
+            return toString();
+        }
+    }
+
+    // 扩展欧几里得算法求模逆元
+    private static long modInverse(long a, long m) {
+        long m0 = m;
+        long y = 0, x = 1;
+        if (m == 1) return 0;
+
+        a = (a % m + m) % m; // 保证 a 为正
+
+        while (a > 1) {
+            if (m == 0) throw new ArithmeticException("Inverse not found");
+            long q = a / m;
+            long t = m;
+            m = a % m;
+            a = t;
+            t = y;
+            y = x - q * y;
+            x = t;
+        }
+        if (x < 0) x += m0;
+        return x;
     }
 
     private static long gcd(long a, long b) { return b == 0 ? a : gcd(b, a % b); }
-
-
-
 }

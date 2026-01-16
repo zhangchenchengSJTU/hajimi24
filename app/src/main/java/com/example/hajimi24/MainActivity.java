@@ -185,6 +185,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshUI() {
         if (gameManager == null || cardButtons == null) return;
+
+        // 获取当前的模数 (可能为 null)
+        Integer modulus = null;
+        if (gameManager.getCurrentProblem() != null) {
+            modulus = gameManager.getCurrentProblem().modulus;
+        }
+
         int count = gameManager.currentNumberCount;
         for (int i = 0; i < 5; i++) {
             if (cardButtons[i] == null) continue;
@@ -193,7 +200,16 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 if (gameManager.cardValues[i] != null) {
                     cardButtons[i].setVisibility(View.VISIBLE);
-                    cardButtons[i].setText(gameManager.cardValues[i].toString());
+
+                    // 核心修复: 根据是否存在模数，选择不同的显示方式
+                    String text;
+                    if (modulus != null) {
+                        text = gameManager.cardValues[i].toModString(modulus);
+                    } else {
+                        text = gameManager.cardValues[i].toString();
+                    }
+                    cardButtons[i].setText(text);
+
                     cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC"));
                 } else {
                     cardButtons[i].setVisibility(View.INVISIBLE);
