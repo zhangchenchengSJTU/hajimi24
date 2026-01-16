@@ -103,9 +103,9 @@ public class ProblemRepository {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
 
-            // 校验逻辑：如果是 mod 或 base 题目，通常直接放行
-            boolean hasMod = line.matches(".*mod\\s*\\d+$");
-            boolean hasBase = line.matches(".*base\\s*\\d+$");
+            // 调整：放宽 hasMod 和 hasBase 的识别，避免因末尾空格或格式微调导致 matches 失败
+            boolean hasMod = line.contains("mod");
+            boolean hasBase = line.contains("base");
 
             if (!isProblemValid(line, fileName, settings) && !hasMod && !hasBase) continue;
 
@@ -174,8 +174,8 @@ public class ProblemRepository {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
 
-            boolean hasMod = line.matches(".*mod\\s*\\d+$");
-            boolean hasBase = line.matches(".*base\\s*\\d+$");
+            boolean hasMod = line.contains("mod");
+            boolean hasBase = line.contains("base");
 
             if (!isProblemValid(line, fileName, settings) && !hasMod && !hasBase) continue;
 
@@ -191,9 +191,8 @@ public class ProblemRepository {
         if (parts.length < 2) return false;
         String solution = parts[1].trim();
 
-        // 包含 mod 或 base 的题目跳过复杂过滤，直接视为有效
-        if (solution.matches(".*mod\\s*\\d+$")) return true;
-        if (solution.matches(".*base\\s*\\d+$")) return true;
+        // 调整：包含 mod 或 base 的题目直接放行，不参与后续针对 10 进制设计的过滤
+        if (solution.contains("mod") || solution.contains("base")) return true;
 
         if (settings.requireDivisionStorm) {
             String numbersListString = parts[0];
@@ -222,7 +221,15 @@ public class ProblemRepository {
             }
         }
 
-        if (settings.requireFractionCalc && !expressionContainsFractions(solution)) return false;
+        // 提取 radix 用于分数和范围检查
+        int currentRadix = 10;
+        Pattern radixPattern = Pattern.compile("^\\[(\\d+)\\]");
+        Matcher radixMatcher = radixPattern.matcher(parts[0].trim());
+        if (radixMatcher.find()) {
+            currentRadix = Integer.parseInt(radixMatcher.group(1));
+        }
+
+        if (settings.requireFractionCalc && !expressionContainsFractions(solution, currentRadix)) return false;
 
         if (fileName.contains("小于") && settings.numberBound > 0) {
             for (int num : getIntegerComponents(parts[0])) {
@@ -233,9 +240,13 @@ public class ProblemRepository {
     }
 
     public boolean expressionContainsFractions(String expression) {
+        return expressionContainsFractions(expression, 10);
+    }
+
+    public boolean expressionContainsFractions(String expression, int radix) {
         if (expression.contains("mod")) return false;
-        if (expression.contains("base")) return false; // base 题目不检查分数特性
-        try { evaluateAndCheck(expression); }
+        if (expression.contains("base")) return false;
+        try { evaluateAndCheck(expression, radix); }
         catch (FractionalOperationFoundException e) { return true; }
         catch (Exception e) { return false; }
         return false;
@@ -244,9 +255,12 @@ public class ProblemRepository {
     private static class FractionalOperationFoundException extends RuntimeException {}
 
     private Fraction evaluateAndCheck(String subExpression) throws FractionalOperationFoundException {
+        return evaluateAndCheck(subExpression, 10);
+    }
+
+    private Fraction evaluateAndCheck(String subExpression, int radix) throws FractionalOperationFoundException {
         subExpression = subExpression.trim();
         if (subExpression.matches(".*mod\\s*\\d+$")) subExpression = subExpression.replaceAll("mod\\s*\\d+$", "").trim();
-        // 如果这里还有 base 字符串，理论上也应该去除，但前面的 expressionContainsFractions 已经拦截了 base 题目
 
         if (subExpression.startsWith("(") && subExpression.endsWith(")")) {
             int balance = 0;
@@ -256,7 +270,7 @@ public class ProblemRepository {
                 else if (subExpression.charAt(i) == ')') balance--;
                 if (balance == 0) { isPaired = false; break; }
             }
-            if (isPaired) return evaluateAndCheck(subExpression.substring(1, subExpression.length() - 1));
+            if (isPaired) return evaluateAndCheck(subExpression.substring(1, subExpression.length() - 1), radix);
         }
 
         int balance = 0;
@@ -266,8 +280,8 @@ public class ProblemRepository {
             if (balance == 0 && (c == '+' || c == '-') && i > 0) {
                 String leftStr = subExpression.substring(0, i).trim();
                 if (leftStr.isEmpty() || "+-*/(".indexOf(leftStr.charAt(leftStr.length() - 1)) != -1) continue;
-                Fraction l = evaluateAndCheck(leftStr);
-                Fraction r = evaluateAndCheck(subExpression.substring(i + 1).trim());
+                Fraction l = evaluateAndCheck(leftStr, radix);
+                Fraction r = evaluateAndCheck(subExpression.substring(i + 1).trim(), radix);
                 if (l.toString().contains("/") || r.toString().contains("/")) throw new FractionalOperationFoundException();
                 return c == '+' ? l.add(r) : l.sub(r);
             }
@@ -277,8 +291,8 @@ public class ProblemRepository {
             char c = subExpression.charAt(i);
             if (c == ')') balance++; else if (c == '(') balance--;
             if (balance == 0 && (c == '*' || c == '/') && i > 0) {
-                Fraction l = evaluateAndCheck(subExpression.substring(0, i).trim());
-                Fraction r = evaluateAndCheck(subExpression.substring(i + 1).trim());
+                Fraction l = evaluateAndCheck(subExpression.substring(0, i).trim(), radix);
+                Fraction r = evaluateAndCheck(subExpression.substring(i + 1).trim(), radix);
                 if (c == '*') return l.multiply(r);
                 else {
                     if (r.toString().equals("0")) throw new ArithmeticException("Div 0");
@@ -286,7 +300,7 @@ public class ProblemRepository {
                 }
             }
         }
-        return parseTokenToFraction(subExpression, 10); // 默认校验时使用10进制
+        return parseTokenToFraction(subExpression, radix);
     }
 
     private int findMainOperatorIndex(String expression) {
@@ -308,9 +322,22 @@ public class ProblemRepository {
 
     private List<Integer> getIntegerComponents(String problemPart) {
         List<Integer> numbers = new ArrayList<>();
-        Pattern p = Pattern.compile("\\d+");
-        Matcher m = p.matcher(problemPart);
-        while (m.find()) numbers.add(Integer.parseInt(m.group()));
+        int currentRadix = 10;
+        Pattern radixPattern = Pattern.compile("^\\[(\\d+)\\]");
+        Matcher radixMatcher = radixPattern.matcher(problemPart.trim());
+        String partToSearch = problemPart;
+        if (radixMatcher.find()) {
+            currentRadix = Integer.parseInt(radixMatcher.group(1));
+            partToSearch = problemPart.substring(radixMatcher.end());
+        }
+
+        Pattern p = Pattern.compile("[0-9A-Fa-f]+");
+        Matcher m = p.matcher(partToSearch);
+        while (m.find()) {
+            try {
+                numbers.add(Integer.parseInt(m.group(), currentRadix));
+            } catch (Exception e) { }
+        }
         return numbers;
     }
 
@@ -321,13 +348,12 @@ public class ProblemRepository {
             String numberPart = parts[0];
             String solution = parts[1].trim();
             Integer modulus = null;
-            Integer radix = null; // 新增：进制
+            Integer radix = null;
 
             Pattern modPattern = Pattern.compile("mod\\s*(\\d+)$");
             Matcher modMatcher = modPattern.matcher(solution);
             if (modMatcher.find()) modulus = Integer.parseInt(modMatcher.group(1));
 
-            // 新增：提取 base
             Pattern basePattern = Pattern.compile("base\\s*(\\d+)$");
             Matcher baseMatcher = basePattern.matcher(solution);
             if (baseMatcher.find()) radix = Integer.parseInt(baseMatcher.group(1));
@@ -339,26 +365,21 @@ public class ProblemRepository {
                 String numbersString = matcher.group(1);
                 String[] numberTokens = numbersString.split("', '");
                 List<Fraction> fractions = new ArrayList<>();
-                // 确定使用的进制，默认为 10
                 int currentRadix = (radix != null) ? radix : 10;
 
                 for (String token : numberTokens) {
-                    // 传入进制进行解析
                     fractions.add(parseTokenToFraction(token.replace("'", "").trim(), currentRadix));
                 }
-                // 调用包含 radix 的新构造函数
                 return new Problem(fractions, solution, line, modulus, radix);
             }
         } catch (Exception e) { e.printStackTrace(); }
         return null;
     }
 
-    // 默认方法保持兼容
     private Fraction parseTokenToFraction(String token) {
         return parseTokenToFraction(token, 10);
     }
 
-    // 新增：支持进制解析
     private Fraction parseTokenToFraction(String token, int radix) {
         token = token.replace("(", "").replace(")", "");
         if (token.contains("i")) {
