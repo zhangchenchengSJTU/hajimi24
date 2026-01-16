@@ -69,29 +69,27 @@ public class SidebarLogic {
         repository.fetchRemoteFileTree(new ProblemRepository.MenuDataCallback() {
             @Override
             public void onSuccess(List<ProblemRepository.RemoteFile> remoteFiles) {
-                cachedRemoteFiles = remoteFiles;
-
-                // 过滤出本地不存在的文件
                 List<ProblemRepository.RemoteFile> filesToDownload = new ArrayList<>();
+
                 for (ProblemRepository.RemoteFile rf : remoteFiles) {
-                    if (!repository.isFileDownloaded(rf.path)) {
+                    // 关键点：使用 needsUpdate 替代 isFileDownloaded
+                    if (repository.needsUpdate(rf.path, rf.sha)) {
                         filesToDownload.add(rf);
                     }
                 }
 
                 if (filesToDownload.isEmpty()) {
                     new Handler(Looper.getMainLooper()).post(() ->
-                            Toast.makeText(activity, "题库已是最新，无需下载", Toast.LENGTH_SHORT).show());
+                            Toast.makeText(activity, "所有题库已是最新", Toast.LENGTH_SHORT).show());
                     return;
                 }
 
-                // 弹出确认对话框
                 new Handler(Looper.getMainLooper()).post(() -> {
                     new AlertDialog.Builder(activity)
-                            .setTitle("同步题库")
-                            .setMessage("发现 " + filesToDownload.size() + " 个新文件，是否开始下载？")
-                            .setPositiveButton("开始", (d, w) -> executeBatchDownload(filesToDownload))
-                            .setNegativeButton("取消", null)
+                            .setTitle("发现更新")
+                            .setMessage("共有 " + filesToDownload.size() + " 个文件需要同步（包含新文件或已修改的文件），是否开始？")
+                            .setPositiveButton("同步", (d, w) -> executeBatchDownload(filesToDownload))
+                            .setNegativeButton("稍后", null)
                             .show();
                 });
             }
@@ -158,7 +156,7 @@ public class SidebarLogic {
                     progressBar.setProgress(currentCount);
                 });
 
-                repository.downloadFileSync(rf.path);
+                repository.downloadFileSync(rf.path, rf.sha);
             }
 
             new Handler(Looper.getMainLooper()).post(() -> {
@@ -248,7 +246,7 @@ public class SidebarLogic {
             else if (id == 777) { showModeSettingsDialog(); }
             else if (id == 666) { showCalculatorDialog(); }
             else if (id == 555) { showThemeSelectionDialog(); }
-            else if (title.contains("随机") || title.contains("Random")) {
+            else if (title.contains("随机休闲") || title.contains("Random")) {
                 isCurrentModeRandom = true;
                 currentLoadedFileName = null;
                 if (title.contains("3")) callback.onRandomMode(3);
@@ -273,10 +271,10 @@ public class SidebarLogic {
         menu.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
         menu.add(Menu.NONE, 555, Menu.NONE, "🎨 主题设置");
 
-        SubMenu randomGroup = menu.addSubMenu("🎲 随机练习");
-        randomGroup.add(Menu.NONE, 103, Menu.NONE, "随机 (3数)");
-        randomGroup.add(Menu.NONE, 104, Menu.NONE, "随机 (4数)");
-        randomGroup.add(Menu.NONE, 105, Menu.NONE, "随机 (5数)");
+        SubMenu randomGroup = menu.addSubMenu("🎲 随机休闲练习");
+        randomGroup.add(Menu.NONE, 103, Menu.NONE, "随机休闲 (3数)");
+        randomGroup.add(Menu.NONE, 104, Menu.NONE, "随机休闲 (4数)");
+        randomGroup.add(Menu.NONE, 105, Menu.NONE, "随机休闲 (5数)");
     }
 
     // ==========================================
@@ -517,22 +515,21 @@ public class SidebarLogic {
         SwitchCompat switchAvoidAddSub = dialogView.findViewById(R.id.switch_avoid_add_sub);
         SwitchCompat switchMustHaveDivision = dialogView.findViewById(R.id.switch_must_have_division);
         SwitchCompat switchAvoidTrivialMul = dialogView.findViewById(R.id.switch_avoid_trivial_mul);
-        SwitchCompat switchRequireFrac = dialogView.findViewById(R.id.switch_require_fraction_calc);
         SwitchCompat switchRequireStorm = dialogView.findViewById(R.id.switch_require_division_storm);
         TextView tvWarning = dialogView.findViewById(R.id.tv_warning_random);
 
+        // 初始化选中状态
         switchAvoidAddSub.setChecked(gameModeSettings.avoidPureAddSub);
         switchMustHaveDivision.setChecked(gameModeSettings.mustHaveDivision);
         switchAvoidTrivialMul.setChecked(gameModeSettings.avoidTrivialFinalMultiply);
-        switchRequireFrac.setChecked(gameModeSettings.requireFractionCalc);
         switchRequireStorm.setChecked(gameModeSettings.requireDivisionStorm);
 
         Runnable updateVisibility = () -> {
+            // 1. 随机休闲模式处理
             if (isCurrentModeRandom) {
                 switchAvoidAddSub.setVisibility(View.GONE);
                 switchMustHaveDivision.setVisibility(View.GONE);
                 switchAvoidTrivialMul.setVisibility(View.GONE);
-                switchRequireFrac.setVisibility(View.GONE);
                 switchRequireStorm.setVisibility(View.GONE);
                 if (tvWarning != null) {
                     tvWarning.setVisibility(View.VISIBLE);
@@ -540,23 +537,56 @@ public class SidebarLogic {
                 }
                 return;
             }
+
             if (tvWarning != null) tvWarning.setVisibility(View.GONE);
-            boolean isMod = currentLoadedFileName != null && (currentLoadedFileName.toLowerCase().contains("mod") || currentLoadedFileName.contains("模"));
+
+            // 2. 特殊模式判定
+            String fName = currentLoadedFileName != null ? currentLoadedFileName.toLowerCase() : "";
+            boolean isSpecialMode = fName.contains("mod") || fName.contains("模") ||
+                    fName.contains("base") || fName.contains("进制");
+
+            // 3. 层级显示逻辑
+            // 第一层：避免纯加减 (layer1)
             switchAvoidAddSub.setVisibility(View.VISIBLE);
             boolean layer1Active = switchAvoidAddSub.isChecked();
-            int layer2Visibility = layer1Active ? View.VISIBLE : View.GONE;
-            switchMustHaveDivision.setVisibility(layer2Visibility);
-            if (isMod) switchAvoidTrivialMul.setVisibility(View.GONE); else switchAvoidTrivialMul.setVisibility(layer2Visibility);
-            boolean mustDiv = switchMustHaveDivision.isChecked();
-            boolean avoidTrivial = switchAvoidTrivialMul.isChecked();
-            int layer3Visibility = (layer1Active && mustDiv && avoidTrivial) ? View.VISIBLE : View.GONE;
-            if (isMod) switchRequireFrac.setVisibility(View.GONE); else switchRequireFrac.setVisibility(layer3Visibility);
-            switchRequireStorm.setVisibility(layer3Visibility);
+            int layerVisibilityVal = layer1Active ? View.VISIBLE : View.GONE;
+
+            // 第二层：必须有除法
+            switchMustHaveDivision.setVisibility(layerVisibilityVal);
+            boolean hasDivision = switchMustHaveDivision.isChecked();
+
+            // 4. 高级选项控制
+
+            // [平凡乘法]：逻辑较复杂，依然仅在非特殊模式下显示
+            if (isSpecialMode) {
+                switchAvoidTrivialMul.setVisibility(View.GONE);
+            } else {
+                switchAvoidTrivialMul.setVisibility(layerVisibilityVal);
+            }
+
+            // [除法风暴]：逻辑简单且通用，提升为全局规则（不再受 isSpecialMode 限制）
+            // 规则：只有在 layer1 开启 且 勾选了除法时才显示。
+            switchRequireStorm.setVisibility((layer1Active && hasDivision) ? View.VISIBLE : View.GONE);
+
+            // 状态联动：如果关闭了除法，强制取消风暴开关的选中状态
+            if (!hasDivision) {
+                switchRequireStorm.setChecked(false);
+            }
         };
 
+        // 设置监听器处理 UI 刷新和状态联动
         switchAvoidAddSub.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
-        switchMustHaveDivision.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
+
+        switchMustHaveDivision.setOnCheckedChangeListener((b, c) -> {
+            // 核心联动：如果关闭了除法，自动关闭风暴开关
+            if (!c) {
+                switchRequireStorm.setChecked(false);
+            }
+            updateVisibility.run();
+        });
+
         switchAvoidTrivialMul.setOnCheckedChangeListener((b, c) -> updateVisibility.run());
+
         updateVisibility.run();
 
         builder.setTitle("模式设定")
@@ -564,13 +594,15 @@ public class SidebarLogic {
                     gameModeSettings.avoidPureAddSub = switchAvoidAddSub.isChecked();
                     gameModeSettings.mustHaveDivision = switchMustHaveDivision.isChecked();
                     gameModeSettings.avoidTrivialFinalMultiply = switchAvoidTrivialMul.isChecked();
-                    gameModeSettings.requireFractionCalc = switchRequireFrac.isChecked();
                     gameModeSettings.requireDivisionStorm = switchRequireStorm.isChecked();
                     if (callback != null) callback.onSettingsChanged();
                 })
                 .setNegativeButton("取消", (dialog, id) -> dialog.cancel());
+
         builder.create().show();
     }
+
+
 
     // [Restored] showThemeSelectionDialog
     private void showThemeSelectionDialog() {
@@ -599,18 +631,107 @@ public class SidebarLogic {
                 .setNegativeButton("取消", null).show();
     }
 
-    // [Restored] showHelpDialog
+    private boolean isHelpFullScreen = false;
+
     private void showHelpDialog() {
+        if (activity == null) return;
+
         try {
-            CharSequence helpContent = MarkdownUtils.loadMarkdownFromAssets(activity, "help.md");
-            AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("游戏指南").setMessage(helpContent).setPositiveButton("开始挑战", null).create();
+            final String htmlContent = MarkdownUtils.loadMarkdownFromAssets(activity, "help.md");
+
+            // 1. 创建 Dialog 并彻底去掉标题和默认背景
+            final android.app.Dialog dialog = new android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+            // 2. 根布局：全屏透明，点击阴影可以关闭（可选）
+            android.widget.RelativeLayout root = new android.widget.RelativeLayout(activity);
+            root.setBackgroundColor(android.graphics.Color.parseColor("#80000000")); // 半透明遮罩背景
+
+            // 3. 内容容器：这才是那个白色的“纸张”
+            final android.widget.LinearLayout contentBox = new android.widget.LinearLayout(activity);
+            contentBox.setOrientation(android.widget.LinearLayout.VERTICAL);
+            contentBox.setBackgroundColor(android.graphics.Color.WHITE);
+
+            // 4. 顶部控制栏
+            android.widget.RelativeLayout controlBar = new android.widget.RelativeLayout(activity);
+            controlBar.setPadding(30, 20, 30, 20);
+            controlBar.setBackgroundColor(android.graphics.Color.parseColor("#f6f8fa"));
+
+            final android.widget.Button btnFull = new android.widget.Button(activity);
+            btnFull.setText("全屏显示");
+            btnFull.setAllCaps(false);
+            btnFull.setBackground(null);
+            btnFull.setTextColor(android.graphics.Color.parseColor("#0366d6"));
+            controlBar.addView(btnFull);
+
+            android.widget.Button btnClose = new android.widget.Button(activity);
+            btnClose.setText("关闭");
+            btnClose.setAllCaps(false);
+            btnClose.setBackground(null);
+            btnClose.setTextColor(android.graphics.Color.GRAY);
+            android.widget.RelativeLayout.LayoutParams lpClose = new android.widget.RelativeLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            lpClose.addRule(android.widget.RelativeLayout.ALIGN_PARENT_RIGHT);
+            controlBar.addView(btnClose, lpClose);
+
+            contentBox.addView(controlBar);
+
+            // 5. WebView
+            final android.webkit.WebView webView = new android.webkit.WebView(activity);
+            webView.getSettings().setJavaScriptEnabled(true);
+            webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null);
+            contentBox.addView(webView, new android.widget.LinearLayout.LayoutParams(-1, -1));
+
+            // 将白色容器放入透明根布局
+            root.addView(contentBox);
+            dialog.setContentView(root);
+
+            // 6. 核心逻辑：切换全屏
+            Runnable updateLayout = () -> {
+                android.widget.RelativeLayout.LayoutParams params;
+                if (isHelpFullScreen) {
+                    // 真正全屏：无边距，占满屏幕
+                    params = new android.widget.RelativeLayout.LayoutParams(-1, -1);
+                    btnFull.setText("退出全屏");
+                } else {
+                    // 窗口模式：设置宽度并居中，高度占 75%
+                    int width = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.9);
+                    int height = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.75);
+                    params = new android.widget.RelativeLayout.LayoutParams(width, height);
+                    params.addRule(android.widget.RelativeLayout.CENTER_IN_PARENT);
+                    btnFull.setText("全屏显示");
+                }
+                contentBox.setLayoutParams(params);
+            };
+
+            btnFull.setOnClickListener(v -> {
+                isHelpFullScreen = !isHelpFullScreen;
+                updateLayout.run();
+            });
+
+            btnClose.setOnClickListener(v -> dialog.dismiss());
+
+            // 初始状态
+            isHelpFullScreen = false;
+            updateLayout.run();
+
             dialog.show();
-            TextView msgView = dialog.findViewById(android.R.id.message);
-            if (msgView != null) msgView.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+
+            // 确保 Window 级别也是全屏的，防止黑边
+            android.view.Window window = dialog.getWindow();
+            if (window != null) {
+                window.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+            }
+
         } catch (Exception e) {
-            new AlertDialog.Builder(activity).setTitle("游戏指南").setMessage("暂无说明").setPositiveButton("确定", null).show();
+            e.printStackTrace();
         }
     }
+
+
+
+
+
 
     // [Restored] showCalculatorDialog
     private void showCalculatorDialog() {
@@ -623,7 +744,7 @@ public class SidebarLogic {
         layout.setPadding(padding, padding, padding, padding);
 
         final EditText etInput = new EditText(activity);
-        etInput.setHint("请输入数字 (例如 3 3 8 8)\n支持复数 (3i, 1+2i)");
+        etInput.setHint("请输入数字 (例如 3 3 8 8)");
         etInput.setMinLines(2);
         layout.addView(etInput);
 
@@ -665,7 +786,7 @@ public class SidebarLogic {
                 } else if (position == 1) { // 同余
                     spinnerDetail.setVisibility(View.VISIBLE);
                     spinnerDetail.setAdapter(modAdapter);
-                    etInput.setHint("请输入 0 到 Mod-1 之间的整数");
+                    etInput.setHint("Mod n 模式下, 请输入 0 到 n-1 之间的整数");
                 } else { // 进制
                     spinnerDetail.setVisibility(View.VISIBLE);
                     spinnerDetail.setAdapter(radixAdapter);

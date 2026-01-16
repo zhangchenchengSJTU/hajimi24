@@ -42,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
     private long gameStartTime;
     private int selectedFirstIndex = -1;
     private String selectedOperator = null;
-    private String currentFileName = "随机(4数)";
+    private String currentFileName = "随机休闲(4数)";
     private String lastPlainTextSolution = "";
     private void showThemeSelectionDialog() {
         final String[] themes = {"跟随系统", "日间模式", "夜间模式"};
@@ -98,6 +98,28 @@ public class MainActivity extends AppCompatActivity {
         gameStartTime = System.currentTimeMillis();
         switchToRandomMode(4);
     }
+    private void updateMenuButtonText(String rawName) {
+        // 1. 去掉 .txt 后缀
+        String nameWithoutExt = rawName.replace(".txt", "");
+
+        // 2. 核心：只取最后一个 '/' 之后的部分，从而彻底隐藏文件夹名称
+        String cleanName = nameWithoutExt;
+        int lastSlash = nameWithoutExt.lastIndexOf('/');
+        if (lastSlash != -1) {
+            cleanName = nameWithoutExt.substring(lastSlash + 1);
+        }
+
+        // 3. 处理横杠换行和括号逻辑
+        String displayText;
+        if (cleanName.contains("-")) {
+            String[] parts = cleanName.split("-", 2);
+            displayText = "☰ 模式: " + parts[0] + "\n(" + parts[1] + ")";
+        } else {
+            displayText = "☰ 模式: " + cleanName;
+        }
+
+        btnMenu.setText(displayText);
+    }
 
     private void initHelpers() {
         NavigationView navView = findViewById(R.id.nav_view);
@@ -110,21 +132,27 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onLoadProblems(List<Problem> problems, String title) {
-                // Directly set the problem set without loading from local file
                 gameManager.setProblemSet(problems);
-                // Remove path prefix for cleaner display
-                currentFileName = title.replace("data/", "").replace(".txt", "");
-                btnMenu.setText("☰ 模式: " + currentFileName);
+                currentFileName = title; // 存完整路径用于刷新
+                updateMenuButtonText(title); // 内部会自动处理路径和换行
                 Toast.makeText(MainActivity.this, "加载成功", Toast.LENGTH_SHORT).show();
                 startNewGameLocal();
             }
 
             @Override
             public void onSettingsChanged() {
-                // If it is file mode, you might want to reload.
-                // In Online Mode, since we don't save to file, we can either re-download or just ignore.
-                // For now, let's just toast.
-                Toast.makeText(MainActivity.this, "设置已更新 (下一次加载题目生效)", Toast.LENGTH_SHORT).show();
+                // [核心修改]：不再显示“下次生效”，而是直接刷新
+                if (sidebarLogic.isCurrentModeRandom) {
+                    // 如果是随机休闲模式，直接开始新的一局（随机休闲题目重新生成）
+                    startNewGameLocal();
+                } else {
+                    // 如果是题库模式，获取当前记录的文件路径，重新调用加载方法
+                    // 这会触发 Repository 重新读取文件并根据新设置进行过滤
+                    String path = sidebarLogic.currentLoadedFileName;
+                    if (path != null) {
+                        loadProblemSet(path);
+                    }
+                }
             }
         });
         sidebarLogic.setup();
@@ -144,22 +172,16 @@ public class MainActivity extends AppCompatActivity {
         cardButtons[0] = findViewById(R.id.card_1); cardButtons[1] = findViewById(R.id.card_2); cardButtons[2] = findViewById(R.id.card_3); cardButtons[3] = findViewById(R.id.card_4); cardButtons[4] = findViewById(R.id.card_5);
         btnAdd = findViewById(R.id.btn_op_add); btnSub = findViewById(R.id.btn_op_sub); btnMul = findViewById(R.id.btn_op_mul); btnDiv = findViewById(R.id.btn_op_div);
         btnUndo = findViewById(R.id.btn_undo); btnReset = findViewById(R.id.btn_reset); btnRedo = findViewById(R.id.btn_redo); btnTry = findViewById(R.id.btn_try); btnHintStruct = findViewById(R.id.btn_hint_struct); btnAnswer = findViewById(R.id.btn_answer); btnShare = findViewById(R.id.btn_share); btnSkip = findViewById(R.id.btn_skip);
+        btnMenu.setSingleLine(false);
+        btnMenu.setMaxLines(2);
     }
 
     public void loadProblemSet(String fileName) {
         try {
             List<Problem> problems = repository.loadProblemSet(fileName, sidebarLogic.getGameModeSettings());
             gameManager.setProblemSet(problems);
-            currentFileName = fileName.replace(".txt", "");
-
-            String displayText;
-            if (currentFileName.contains("-")) {
-                String[] parts = currentFileName.split("-", 2);
-                displayText = "☰ 模式: " + parts[0] + "\n(" + parts[1] + ")";
-            } else {
-                displayText = "☰ 模式: " + currentFileName;
-            }
-            btnMenu.setText(displayText);
+            currentFileName = fileName;
+            updateMenuButtonText(fileName); // 使用统一样式更新
 
             Toast.makeText(this, "加载成功", Toast.LENGTH_SHORT).show();
             startNewGameLocal();
@@ -167,15 +189,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+
     public void switchToRandomMode(int count) {
         gameManager.currentNumberCount = count;
-        currentFileName = "随机(" + count + "数)";
-        btnMenu.setText("☰ 模式: " + currentFileName);
+        currentFileName = "随机休闲(" + count + "数)";
+        updateMenuButtonText(currentFileName); // 使用统一样式更新
         startNewGameLocal();
     }
 
+
     private void startNewGameLocal() {
-        gameManager.startNewGame(currentFileName.startsWith("随机"));
+        gameManager.startNewGame(currentFileName.startsWith("随机休闲"));
         if (gameTimer != null) gameTimer.start();
         resetSelection();
         refreshUI();
@@ -422,7 +446,15 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // 结构提示功能
+// 结构提示功能
         if (btnHintStruct != null) btnHintStruct.setOnClickListener(v -> {
+            // [核心修复]：直接判断前缀。如果当前已经显示“结构”，则点击后直接消失并返回。
+            if (tvMessage != null && tvMessage.getText().toString().startsWith("结构: ")) {
+                tvMessage.setText("");
+                lastPlainTextSolution = "";
+                return;
+            }
+
             String sol = getFreshSolution();
             if (sol != null) {
                 if (tvMessage != null) {
@@ -431,13 +463,26 @@ public class MainActivity extends AppCompatActivity {
                     lastPlainTextSolution = ExpressionHelper.getStructureAsPlainText(sol, getCurrentNumbers());
                 }
             } else {
-                if (tvMessage != null) tvMessage.setText("无解");
-                lastPlainTextSolution = "无解";
+                // 无解状态切换逻辑：点一下出现“无解”，再点一下消失
+                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
+                    tvMessage.setText("");
+                    lastPlainTextSolution = "";
+                } else if (tvMessage != null) {
+                    tvMessage.setText("无解");
+                    lastPlainTextSolution = "无解";
+                }
             }
         });
 
-        // 完整答案功能
+// 完整答案功能
         if (btnAnswer != null) btnAnswer.setOnClickListener(v -> {
+            // [核心修复]：直接判断前缀。如果当前已经显示“答案”，则点击后直接消失并返回。
+            if (tvMessage != null && tvMessage.getText().toString().startsWith("答案: ")) {
+                tvMessage.setText("");
+                lastPlainTextSolution = "";
+                return;
+            }
+
             String sol = getFreshSolution();
             if (sol != null) {
                 if (tvMessage != null) {
@@ -446,10 +491,17 @@ public class MainActivity extends AppCompatActivity {
                     lastPlainTextSolution = ExpressionHelper.getAnswerAsPlainText(sol, getCurrentNumbers());
                 }
             } else {
-                if (tvMessage != null) tvMessage.setText("无解");
-                lastPlainTextSolution = "无解";
+                // 无解状态切换逻辑：点一下出现“无解”，再点一下消失
+                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
+                    tvMessage.setText("");
+                    lastPlainTextSolution = "";
+                } else if (tvMessage != null) {
+                    tvMessage.setText("无解");
+                    lastPlainTextSolution = "无解";
+                }
             }
         });
+
 
         // 题目分享
         if (btnShare != null) {

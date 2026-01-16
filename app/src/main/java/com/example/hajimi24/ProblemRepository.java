@@ -32,10 +32,12 @@ public class ProblemRepository {
     public static class RemoteFile {
         public String path;
         public String name;
+        public String sha;
 
-        public RemoteFile(String path, String name) {
+        public RemoteFile(String path, String name, String sha) {
             this.path = path;
             this.name = name;
+            this.sha = sha;
         }
     }
 
@@ -58,25 +60,34 @@ public class ProblemRepository {
         new Thread(() -> {
             try {
                 String jsonStr = downloadString(GITHUB_TREE_URL);
-                if (jsonStr == null) throw new Exception("网络请求失败");
-
                 JSONObject root = new JSONObject(jsonStr);
                 JSONArray tree = root.getJSONArray("tree");
-
                 List<RemoteFile> result = new ArrayList<>();
                 for (int i = 0; i < tree.length(); i++) {
                     JSONObject item = tree.getJSONObject(i);
                     String path = item.getString("path");
                     if (path.startsWith("data/") && path.endsWith(".txt")) {
                         String name = path.substring(path.lastIndexOf('/') + 1);
-                        result.add(new RemoteFile(path, name));
+                        String sha = item.getString("sha"); // 获取 SHA
+                        result.add(new RemoteFile(path, name, sha));
                     }
                 }
                 if (callback != null) callback.onSuccess(result);
-            } catch (Exception e) {
-                if (callback != null) callback.onFail(e.getMessage());
-            }
+            } catch (Exception e) { e.printStackTrace(); }
         }).start();
+    }
+
+    public void saveLocalFileSHA(String path, String sha) {
+        context.getSharedPreferences("FileMeta", Context.MODE_PRIVATE)
+                .edit().putString(path, sha).apply();
+    }
+    public boolean needsUpdate(String path, String remoteSha) {
+        File file = new File(context.getFilesDir(), path);
+        if (!file.exists()) return true; // 文件不存在，需要下载
+
+        String localSha = context.getSharedPreferences("FileMeta", Context.MODE_PRIVATE)
+                .getString(path, "");
+        return !localSha.equals(remoteSha); // 如果 SHA 不一致，说明云端更新了
     }
 
     public void downloadFileContent(String filePath, GameModeSettings settings, FileDownloadCallback callback) {
@@ -135,7 +146,7 @@ public class ProblemRepository {
                             String path = "data/" + fileName;
                             boolean exists = false;
                             for(RemoteFile rf : result) if(rf.path.equals(path)) exists = true;
-                            if(!exists) result.add(new RemoteFile(path, fileName));
+                            if(!exists) result.add(new RemoteFile(path, fileName, ""));
                         }
                     }
                 }
@@ -154,7 +165,7 @@ public class ProblemRepository {
             if (f.isDirectory()) {
                 scanLocalDirectory(f, prefix + f.getName() + "/", result);
             } else if (f.getName().endsWith(".txt")) {
-                result.add(new RemoteFile(prefix + f.getName(), f.getName()));
+                result.add(new RemoteFile(prefix + f.getName(), f.getName(), ""));
             }
         }
     }
@@ -171,7 +182,7 @@ public class ProblemRepository {
             boolean hasMod = line.contains("mod");
             boolean hasBase = line.contains("base");
 
-            if (!isProblemValid(line, fileName, settings) && !hasMod && !hasBase) continue;
+            if (!isProblemValid(line, fileName, settings)) continue;
 
             Problem p = parseLineToProblem(line);
             if (p != null) list.add(p);
@@ -250,8 +261,7 @@ public class ProblemRepository {
             boolean hasMod = line.contains("mod");
             boolean hasBase = line.contains("base");
 
-            if (!isProblemValid(line, fileName, settings) && !hasMod && !hasBase) continue;
-
+            if (!isProblemValid(line, fileName, settings)) continue;
             Problem p = parseLineToProblem(line);
             if (p != null) problems.add(p);
         }
@@ -263,54 +273,73 @@ public class ProblemRepository {
         String[] parts = line.split("->");
         if (parts.length < 2) return false;
         String solution = parts[1].trim();
+        String solLower = solution.toLowerCase();
+        String fileLower = fileName.toLowerCase();
 
-        // 调整：包含 mod 或 base 的题目直接放行，不参与后续针对 10 进制设计的过滤
-        if (solution.contains("mod") || solution.contains("base")) return true;
+        // ==========================================
+        // 基础全局规则 (对所有格式生效)
+        // ==========================================
+        // 1. 必须含有除法规则
+        if (settings.mustHaveDivision && !solution.contains(" / ")) return false;
 
+        // 2. 避免纯加减规则
+        if (settings.avoidPureAddSub && !solution.contains(" * ") && !solution.contains(" / ")) return false;
+
+        // 3. [核心修改] 除法风暴规则 (提升为全局规则)
         if (settings.requireDivisionStorm) {
+            // 计算题目中的数字个数 n
             String numbersListString = parts[0];
             int n = 1;
-            for (int i = 0; i < numbersListString.length(); i++) if (numbersListString.charAt(i) == ',') n++;
-            if (n < 2) return false;
+            for (int i = 0; i < numbersListString.length(); i++) {
+                if (numbersListString.charAt(i) == ',') n++;
+            }
+
+            // 统计解法中除号 " / " 出现的次数
             int divisionCount = 0;
             int lastIndex = 0;
-            String divisionOperator = " / ";
-            while ((lastIndex = solution.indexOf(divisionOperator, lastIndex)) != -1) {
+            String op = " / ";
+            while ((lastIndex = solution.indexOf(op, lastIndex)) != -1) {
                 divisionCount++;
-                lastIndex += divisionOperator.length();
+                lastIndex += op.length();
             }
+
+            // 判定：如果除号数量少于 n - 2，则不合格
             if (divisionCount < n - 2) return false;
         }
 
-        if (settings.avoidPureAddSub && !solution.contains("*") && !solution.contains(" / ")) return false;
-        if (settings.mustHaveDivision && !solution.contains(" / ")) return false;
+        // ==========================================
+        // 高级过滤保护：判断是否为特殊模式 (进制、取模、复数、分数题库)
+        // ==========================================
+        boolean isSpecialMode = solLower.contains("mod") || solLower.contains("base") || solLower.contains("i")
+                || fileLower.contains("base") || fileLower.contains("进制")
+                || fileLower.contains("mod") || fileLower.contains("模")
+                || fileLower.contains("分数") || fileLower.contains("fraction");
 
+        if (isSpecialMode) return true;
+
+        // ==========================================
+        // 4. 只有在非特殊模式下，才执行以下 10 进制特有过滤
+        // ==========================================
         if (settings.avoidTrivialFinalMultiply) {
             int mainOpIdx = findMainOperatorIndex(solution);
             if (mainOpIdx != -1 && solution.charAt(mainOpIdx) == '*') {
-                String left = solution.substring(0, mainOpIdx);
-                String right = solution.substring(mainOpIdx + 1);
-                if (!left.contains(" / ") && !right.contains(" / ")) return false;
+                String left = solution.substring(0, mainOpIdx).trim();
+                String right = solution.substring(mainOpIdx + 1).trim();
+                while (left.startsWith("(") && left.endsWith(")")) left = left.substring(1, left.length() - 1).trim();
+                while (right.startsWith("(") && right.endsWith(")")) right = right.substring(1, right.length() - 1).trim();
+
+                String[] trivialNumbers = {"1", "2", "3", "4", "6", "8", "12", "24"};
+                for (String num : trivialNumbers) {
+                    if (left.equals(num) || right.equals(num)) return false;
+                }
             }
         }
 
-        // 提取 radix 用于分数和范围检查
-        int currentRadix = 10;
-        Pattern radixPattern = Pattern.compile("^\\[(\\d+)\\]");
-        Matcher radixMatcher = radixPattern.matcher(parts[0].trim());
-        if (radixMatcher.find()) {
-            currentRadix = Integer.parseInt(radixMatcher.group(1));
-        }
-
-        if (settings.requireFractionCalc && !expressionContainsFractions(solution, currentRadix)) return false;
-
-        if (fileName.contains("小于") && settings.numberBound > 0) {
-            for (int num : getIntegerComponents(parts[0])) {
-                if (num > settings.numberBound) return false;
-            }
-        }
         return true;
     }
+
+
+
 
     public boolean expressionContainsFractions(String expression) {
         return expressionContainsFractions(expression, 10);
@@ -487,19 +516,14 @@ public class ProblemRepository {
     }
 
     // 2. 同步下载方法 (供批量下载线程调用)
-    public void downloadFileSync(String filePath) {
+    public void downloadFileSync(String path, String sha) {
         try {
-            String encodedPath = filePath.replace(" ", "%20");
-            String url = GITHUB_RAW_BASE + encodedPath;
-
-            // 调用现有的下载逻辑，但不传入进度回调
-            String content = downloadString(url);
+            String content = downloadString(GITHUB_RAW_BASE + path.replace(" ", "%20"));
             if (content != null) {
-                saveFileToInternalStorage(filePath, content);
+                saveFileToInternalStorage(path, content);
+                saveLocalFileSHA(path, sha); // 保存版本标记
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
     private InputStream getFileInputStream(String fileName) throws IOException {
