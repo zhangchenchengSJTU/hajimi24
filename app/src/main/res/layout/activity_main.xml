@@ -78,11 +78,36 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
 
-            <Button android:id="@+id/card_1" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
-            <Button android:id="@+id/card_2" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
-            <Button android:id="@+id/card_3" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
-            <Button android:id="@+id/card_4" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
-            <Button android:id="@+id/card_5" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22" />
+            <Button android:id="@+id/card_1" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22"
+                android:maxLines="1"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="12sp"
+                app:autoSizeMaxTextSize="28sp"
+                app:autoSizeStepGranularity="2sp" />
+            <Button android:id="@+id/card_2" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22"
+                android:maxLines="1"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="12sp"
+                app:autoSizeMaxTextSize="28sp"
+                app:autoSizeStepGranularity="2sp"/>
+            <Button android:id="@+id/card_3" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22"
+                android:maxLines="1"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="12sp"
+                app:autoSizeMaxTextSize="28sp"
+                app:autoSizeStepGranularity="2sp"/>
+            <Button android:id="@+id/card_4" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22"
+                android:maxLines="1"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="12sp"
+                app:autoSizeMaxTextSize="28sp"
+                app:autoSizeStepGranularity="2sp"/>
+            <Button android:id="@+id/card_5" android:layout_width="110dp" android:layout_height="110dp" android:layout_margin="5dp" android:textSize="28sp" android:backgroundTint="#CCCCCC" android:textColor="#228B22"
+                android:maxLines="1"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="12sp"
+                app:autoSizeMaxTextSize="28sp"
+                app:autoSizeStepGranularity="2sp"/>
         </GridLayout>
 
         <LinearLayout

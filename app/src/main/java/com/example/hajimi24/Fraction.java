@@ -23,78 +23,85 @@ public class Fraction {
         this.de = de / common;
     }
 
-    public static Fraction parse(String s, int radix) {
+    /**
+     * 增强版解析器，支持：
+     * "3", "-3" (整数)
+     * "1/2" (分数)
+     * "i", "-i", "2i" (纯虚数)
+     * "6+i", "3-2i" (复数)
+     * "(6+i)/2" (混合格式)
+     */
+    public static Fraction parse(String s) {
         // 数据清洗：去空格，去括号
         s = s.trim().replace(" ", "").replace("(", "").replace(")", "");
 
         long nRe = 0, nIm = 0, nDe = 1;
 
-        // 1. 处理分母 (例如 "1/2" 在 16 进制下)
+        // 处理分母
         if (s.contains("/")) {
             String[] parts = s.split("/");
             s = parts[0];
             try {
-                // 使用 radix 解析分母
-                nDe = Long.parseLong(parts[1], radix);
+                nDe = Long.parseLong(parts[1]);
             } catch (NumberFormatException e) {
-                nDe = 1;
+                nDe = 1; // 容错
             }
         }
 
-        // 2. 处理分子
+        // 处理分子
         if (s.endsWith("i")) {
-            // 复数逻辑 (注意：如果进制 > 18，'i' 可能会被误判为数字，这里假设进制 <= 16)
-            String work = s.substring(0, s.length() - 1);
+            // 它是复数或纯虚数
+            String work = s.substring(0, s.length() - 1); // 去掉结尾的 'i'
 
-            if (work.isEmpty()) { nIm = 1; }
-            else if (work.equals("+")) { nIm = 1; }
-            else if (work.equals("-")) { nIm = -1; }
-            else {
+            if (work.isEmpty()) { // "i"
+                nIm = 1;
+            } else if (work.equals("+")) { // "+i"
+                nIm = 1;
+            } else if (work.equals("-")) { // "-i"
+                nIm = -1;
+            } else {
+                // 寻找分割实部和虚部的符号（最后一个 + 或 -）
                 int splitIdx = -1;
-                // 从后往前找符号，排除掉可能的字母数字
                 for (int k = work.length() - 1; k >= 0; k--) {
                     char c = work.charAt(k);
                     if (c == '+' || c == '-') {
-                        if (k == 0) { /* 负号在首位，不是分隔符 */ }
-                        else { splitIdx = k; break; }
+                        if (k == 0) {
+                            // 符号在首位，说明整体只是虚部，例如 "-2i" -> "-2"
+                            // splitIdx 保持 -1
+                        } else {
+                            splitIdx = k;
+                            break;
+                        }
                     }
                 }
 
                 if (splitIdx != -1) {
+                    // 格式如 "3+2" (原串3+2i)
                     String reStr = work.substring(0, splitIdx);
-                    String imStr = work.substring(splitIdx); // 包含符号
+                    String imStr = work.substring(splitIdx);
 
-                    // 解析实部
-                    try { nRe = Long.parseLong(reStr, radix); } catch (Exception e) {}
+                    try { nRe = Long.parseLong(reStr); } catch (Exception e) {}
 
-                    // 解析虚部
                     if (imStr.equals("+")) nIm = 1;
                     else if (imStr.equals("-")) nIm = -1;
                     else {
-                        try {
-                            // 处理 "+A", "-B" 这种情况
-                            // parseLong 不支持带 '+' 号 (Base 10 除外)，需手动处理
-                            if (imStr.startsWith("+")) {
-                                nIm = Long.parseLong(imStr.substring(1), radix);
-                            } else {
-                                // parseLong 支持 "-"
-                                nIm = Long.parseLong(imStr, radix);
-                            }
-                        } catch (Exception e) {}
+                        try { nIm = Long.parseLong(imStr); } catch (Exception e) {}
                     }
                 } else {
-                    // 纯虚数
-                    try { nIm = Long.parseLong(work, radix); } catch (Exception e) {}
+                    // 纯虚数格式，如 "2" (原串2i) 或 "-2" (原串-2i)
+                    try { nIm = Long.parseLong(work); } catch (Exception e) {}
                 }
             }
         } else {
-            // 纯实数 (最常见情况)
-            try {
-                nRe = Long.parseLong(s, radix);
-            } catch (Exception e) {}
+            // 纯实数
+            try { nRe = Long.parseLong(s); } catch (Exception e) {}
         }
 
         return new Fraction(nRe, nIm, nDe);
+
+
+
+
     }
 
     // 复数加法
@@ -189,5 +196,7 @@ public class Fraction {
     }
 
     private static long gcd(long a, long b) { return b == 0 ? a : gcd(b, a % b); }
+
+
 
 }
