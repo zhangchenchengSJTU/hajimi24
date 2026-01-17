@@ -40,6 +40,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
+import androidx.viewpager2.widget.ViewPager2;
+import androidx.recyclerview.widget.RecyclerView;
+import android.view.ViewGroup;
+
 
 
 public class SidebarLogic {
@@ -50,12 +54,13 @@ public class SidebarLogic {
         // 强制清除旧缓存，确保刚下载的文件能刷出来
         cachedLocalFiles = null;
 
-        repository.fetchLocalFileTree(new ProblemRepository.MenuDataCallback() {
+        // 显式指定扫描 data 目录
+        repository.fetchLocalFileTree("data/", new ProblemRepository.MenuDataCallback() {
             @Override
             public void onSuccess(List<ProblemRepository.RemoteFile> files) {
                 new Handler(Looper.getMainLooper()).post(() -> {
                     cachedLocalFiles = files;
-                    currentExplorerPath = "data/"; // 统一重置到根目录
+                    currentExplorerPath = "data/";
                     showFileExplorerDialog();
                 });
             }
@@ -71,35 +76,30 @@ public class SidebarLogic {
     private Runnable toastRunnable;
     private void startBatchDownload() {
         Toast.makeText(activity, "正在同步题库列表...", Toast.LENGTH_SHORT).show();
-
-        repository.fetchRemoteFileTree(new ProblemRepository.MenuDataCallback() {
+        // 补全参数：只同步 data 目录下的 .txt 文件
+        repository.fetchRemoteFileTree("data/", ".txt", new ProblemRepository.MenuDataCallback() {
             @Override
             public void onSuccess(List<ProblemRepository.RemoteFile> remoteFiles) {
                 List<ProblemRepository.RemoteFile> filesToDownload = new ArrayList<>();
-
                 for (ProblemRepository.RemoteFile rf : remoteFiles) {
-                    // 关键点：使用 needsUpdate 替代 isFileDownloaded
                     if (repository.needsUpdate(rf.path, rf.sha)) {
                         filesToDownload.add(rf);
                     }
                 }
-
                 if (filesToDownload.isEmpty()) {
                     new Handler(Looper.getMainLooper()).post(() ->
                             Toast.makeText(activity, "所有题库已是最新", Toast.LENGTH_SHORT).show());
                     return;
                 }
-
                 new Handler(Looper.getMainLooper()).post(() -> {
                     new AlertDialog.Builder(activity)
                             .setTitle("发现更新")
-                            .setMessage("共有 " + filesToDownload.size() + " 个文件需要同步（包含新文件或已修改的文件），是否开始？")
+                            .setMessage("共有 " + filesToDownload.size() + " 个文件需要同步，是否开始？")
                             .setPositiveButton("同步", (d, w) -> executeBatchDownload(filesToDownload))
                             .setNegativeButton("稍后", null)
                             .show();
                 });
             }
-
             @Override
             public void onFail(String error) {
                 new Handler(Looper.getMainLooper()).post(() ->
@@ -107,6 +107,7 @@ public class SidebarLogic {
             }
         });
     }
+
 
     private void showLayoutAdjustmentDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
@@ -451,7 +452,35 @@ public class SidebarLogic {
                 new Handler(Looper.getMainLooper()).postDelayed(this::showLayoutAdjustmentDialog, 200);
                 return true;
             }
-            else if (id == 888) { showHelpDialog(); }
+            if (id == 4000) { // 在线文档
+                isExploringDocs = true;
+                isExploringLocal = false;
+                currentExplorerPath = "files/";
+                fetchFilesAndShow(currentExplorerPath, ".md");
+                return true;
+            }
+            if (id == 5000) { // 本地文档
+                isExploringDocs = true;
+                isExploringLocal = true;
+                currentExplorerPath = "files/";
+
+                // 核心修复：必须先扫描本地 files 目录
+                repository.fetchLocalFileTree("files/", new ProblemRepository.MenuDataCallback() {
+                    @Override
+                    public void onSuccess(List<ProblemRepository.RemoteFile> files) {
+                        new Handler(Looper.getMainLooper()).post(() -> {
+                            cachedLocalFiles = files;
+                            showFileExplorerDialog();
+                        });
+                    }
+                    @Override
+                    public void onFail(String error) {
+                        new Handler(Looper.getMainLooper()).post(() ->
+                                Toast.makeText(activity, "本地文档目录为空", Toast.LENGTH_SHORT).show());
+                    }
+                });
+                return true;
+            }
             else if (id == 777) { showModeSettingsDialog(); }
             else if (id == 666) { showCalculatorDialog(); }
             else if (id == 555) { showThemeSelectionDialog(); }
@@ -470,143 +499,119 @@ public class SidebarLogic {
     private void refreshMenu() {
         Menu menu = navigationView.getMenu();
         menu.clear();
+        // 1. 题库区
+        SubMenu problemGroup = menu.addSubMenu("📚 游戏题库");
+        problemGroup.add(Menu.NONE, 2000, Menu.NONE, "🌐 在线题库");
+        problemGroup.add(Menu.NONE, 3000, Menu.NONE, "📂 本地题库");
+        problemGroup.add(Menu.NONE, 999, Menu.NONE, "📥 一键同步题库");
 
-        menu.add(Menu.NONE, 2000, Menu.NONE, "🌐 在线题库 (浏览与下载)");
-        menu.add(Menu.NONE, 3000, Menu.NONE, "📂 本地题库 (已下载)"); // 新增
-        menu.add(Menu.NONE, 999, Menu.NONE, "📥 一键同步 (下载所有题目)");
-        menu.add(Menu.NONE, 444, Menu.NONE, "📏 调整布局");
-        menu.add(Menu.NONE, 888, Menu.NONE, "📖 游戏说明书");
-        menu.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
-        menu.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
-        menu.add(Menu.NONE, 555, Menu.NONE, "📐 LaTeX 显示设置");
+        // 2. 文档区 (新)
+        SubMenu docGroup = menu.addSubMenu("📖 游戏说明书");
+        docGroup.add(Menu.NONE, 4000, Menu.NONE, "🛜 在线文档");
+        docGroup.add(Menu.NONE, 5000, Menu.NONE, "📑 本地文档");
+
+        // 3. 设置区
+        SubMenu settingsGroup = menu.addSubMenu("🛠️️ 系统设置");
+        settingsGroup.add(Menu.NONE, 444, Menu.NONE, "📏 界面布局调整");
+        settingsGroup.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
+        settingsGroup.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
+        settingsGroup.add(Menu.NONE, 555, Menu.NONE, "💲 LaTeX 显示设置");
 
         SubMenu randomGroup = menu.addSubMenu("🎲 随机休闲练习");
-        randomGroup.add(Menu.NONE, 103, Menu.NONE, "随机休闲 (3数)");
-        randomGroup.add(Menu.NONE, 104, Menu.NONE, "随机休闲 (4数)");
-        randomGroup.add(Menu.NONE, 105, Menu.NONE, "随机休闲 (5数)");
+        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣ 随机休闲 (3数)");
+        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣ 随机休闲 (4数)");
+        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣ 随机休闲 (5数)");
     }
 
     private void showLatexSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("📐 LaTeX 显示设置");
-
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(60, 40, 60, 40);
-
         SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
 
-        // 1. 总开关
         SwitchCompat swLatex = new SwitchCompat(activity);
         swLatex.setText("启用 LaTeX 高质量渲染");
         swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
         layout.addView(swLatex);
 
-        // --- 2. 乘法模式选择 ---
         final TextView tvMulTitle = new TextView(activity);
         tvMulTitle.setText("\n乘法符号显示模式:");
-        tvMulTitle.setPadding(10, 10, 0, 10);
         layout.addView(tvMulTitle);
-
         final android.widget.RadioGroup rgMul = new android.widget.RadioGroup(activity);
-        rgMul.setPadding(40, 0, 0, 0);
         String[] mulOptions = {"乘法写作 ×", "乘法写作 •", "乘法写作 • (遇括号省略)"};
         int currentMulMode = prefs.getInt("latex_mul_mode", 1);
         for (int i = 0; i < 3; i++) {
             android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i); // ID: 0, 1, 2
-            rb.setText(mulOptions[i]);
-            rgMul.addView(rb);
+            rb.setId(i); rb.setText(mulOptions[i]); rgMul.addView(rb);
             if (currentMulMode == i) rb.setChecked(true);
         }
         layout.addView(rgMul);
 
-        // --- 3. 除法模式选择 ---
         final TextView tvDivTitle = new TextView(activity);
         tvDivTitle.setText("\n除法符号显示模式:");
-        tvDivTitle.setPadding(10, 10, 0, 10);
         layout.addView(tvDivTitle);
-
         final android.widget.RadioGroup rgDiv = new android.widget.RadioGroup(activity);
-        rgDiv.setPadding(40, 0, 0, 0);
         String[] divOptions = {"仅除法运算写作 分数线", "除法与分数均写作 分数线", "除法运算写作 ÷"};
         int currentDivMode = prefs.getInt("latex_div_mode", 0);
         for (int i = 0; i < 3; i++) {
             android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i + 10); // ID: 10, 11, 12
-            rb.setText(divOptions[i]);
-            rgDiv.addView(rb);
+            rb.setId(i + 10); rb.setText(divOptions[i]); rgDiv.addView(rb);
             if (currentDivMode == i) rb.setChecked(true);
         }
         layout.addView(rgDiv);
 
-        // --- 4. 长按 LaTeX 公式行为 ---
         final TextView tvLongPressTitle = new TextView(activity);
         tvLongPressTitle.setText("\n长按 LaTeX 公式行为:");
-        tvLongPressTitle.setPadding(10, 10, 0, 10);
         layout.addView(tvLongPressTitle);
-
         final android.widget.RadioGroup rgLongPress = new android.widget.RadioGroup(activity);
-        rgLongPress.setPadding(40, 0, 0, 0);
         String[] lpOptions = {"复制 LaTeX 代码", "复制计算式文本", "保持原生 MathJax 行为"};
         int currentLPMode = prefs.getInt("latex_long_press_mode", 0);
         for (int i = 0; i < 3; i++) {
             android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i + 20); // ID: 20, 21, 22
-            rb.setText(lpOptions[i]);
-            rgLongPress.addView(rb);
+            rb.setId(i + 20); rb.setText(lpOptions[i]); rgLongPress.addView(rb);
             if (currentLPMode == i) rb.setChecked(true);
         }
         layout.addView(rgLongPress);
 
-        // --- 联动逻辑控制：仅定义一次 ---
+        // 核心修复：updateVisibility 只定义一次
         final Runnable updateVisibility = () -> {
             boolean enabled = swLatex.isChecked();
             float alpha = enabled ? 1.0f : 0.3f;
-
-            tvMulTitle.setAlpha(alpha);
-            tvDivTitle.setAlpha(alpha);
-            tvLongPressTitle.setAlpha(alpha);
-
+            tvMulTitle.setAlpha(alpha); tvDivTitle.setAlpha(alpha); tvLongPressTitle.setAlpha(alpha);
             for(int i=0; i<rgMul.getChildCount(); i++) rgMul.getChildAt(i).setEnabled(enabled);
             for(int i=0; i<rgDiv.getChildCount(); i++) rgDiv.getChildAt(i).setEnabled(enabled);
             for(int i=0; i<rgLongPress.getChildCount(); i++) rgLongPress.getChildAt(i).setEnabled(enabled);
         };
 
-        // 监听器绑定
         swLatex.setOnCheckedChangeListener((v, c) -> {
             prefs.edit().putBoolean("use_latex_mode", c).apply();
             updateVisibility.run();
             if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
         });
-
         rgMul.setOnCheckedChangeListener((g, id) -> {
             prefs.edit().putInt("latex_mul_mode", id).apply();
             if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
         });
-
         rgDiv.setOnCheckedChangeListener((g, id) -> {
             prefs.edit().putInt("latex_div_mode", id - 10).apply();
             if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
         });
+        rgLongPress.setOnCheckedChangeListener((g, id) -> prefs.edit().putInt("latex_long_press_mode", id - 20).apply());
 
-        rgLongPress.setOnCheckedChangeListener((g, id) -> {
-            prefs.edit().putInt("latex_long_press_mode", id - 20).apply();
-        });
-
-        updateVisibility.run(); // 初始化
-
-        builder.setView(layout);
-        builder.setPositiveButton("确定", null);
-        builder.create().show();
+        updateVisibility.run();
+        builder.setView(layout).setPositiveButton("确定", null).create().show();
     }
 
 
 
+    private boolean isExploringDocs = false;
 
     private void fetchRemoteFilesAndShowDialog() {
         Toast.makeText(activity, "正在刷新目录...", Toast.LENGTH_SHORT).show();
-        repository.fetchRemoteFileTree(new ProblemRepository.MenuDataCallback() {
+        // 核心修复：补全 "data/" 和 ".txt" 两个参数
+        repository.fetchRemoteFileTree("data/", ".txt", new ProblemRepository.MenuDataCallback() {
             @Override
             public void onSuccess(List<ProblemRepository.RemoteFile> files) {
                 new Handler(Looper.getMainLooper()).post(() -> {
@@ -626,128 +631,54 @@ public class SidebarLogic {
         });
     }
 
+
     private void showFileExplorerDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle(isExploringLocal ? "📂 本地题库" : "🌐 在线题库");
-
+        builder.setTitle(isExploringLocal ? "📂 本地资源" : "🌐 在线资源");
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
-
         TextView tvPath = new TextView(activity);
         tvPath.setPadding(45, 30, 45, 10);
-        tvPath.setTextSize(13);
         layout.addView(tvPath);
-
         ListView listView = new ListView(activity);
         listView.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1.0f));
         layout.addView(listView);
 
-        // [核心修复]：不再依赖系统的 simple_list_item_1，完全手动构建视图
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(activity, 0, new ArrayList<>()) {
             @Override
             public View getView(int position, View convertView, android.view.ViewGroup parent) {
-                // 1. 视图复用逻辑：确保类型一致
                 if (convertView == null || !(convertView instanceof LinearLayout)) {
                     LinearLayout itemLayout = new LinearLayout(activity);
                     itemLayout.setOrientation(LinearLayout.HORIZONTAL);
                     itemLayout.setPadding(45, 40, 45, 40);
-
                     TextView tvName = new TextView(activity);
                     tvName.setTextSize(16);
-                    // 根据系统主题适配颜色
-                    int textColor = (activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
-                            == android.content.res.Configuration.UI_MODE_NIGHT_YES ? android.graphics.Color.WHITE : android.graphics.Color.BLACK;
-                    tvName.setTextColor(textColor);
                     tvName.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1.0f));
-
                     TextView tvCount = new TextView(activity);
                     tvCount.setTextSize(13);
-                    tvCount.setGravity(android.view.Gravity.END);
-
-                    itemLayout.addView(tvName);
-                    itemLayout.addView(tvCount);
+                    itemLayout.addView(tvName); itemLayout.addView(tvCount);
                     convertView = itemLayout;
                 }
-
-                // 2. 提取组件
                 LinearLayout container = (LinearLayout) convertView;
                 TextView tvName = (TextView) container.getChildAt(0);
                 TextView tvCount = (TextView) container.getChildAt(1);
-
                 String itemText = getItem(position);
                 tvName.setText(itemText);
-                tvCount.setVisibility(View.VISIBLE);
-
-                // 获取当前模式的数据源（用于文件夹计数）
-                List<ProblemRepository.RemoteFile> dataSource = isExploringLocal ? cachedLocalFiles : cachedRemoteFiles;
-
-                if (itemText == null || itemText.equals(".. (返回上一级)")) {
-                    tvCount.setVisibility(View.GONE);
-                }
-                else if (itemText.startsWith("📁 ")) {
-                    // --- 文件夹逻辑：统计该目录下包含的文件总数 ---
-                    String folderName = itemText.replace("📁 ", "");
-                    String folderPath = currentExplorerPath + folderName + "/";
-                    int totalItems = 0;
-                    if (dataSource != null) {
-                        for (ProblemRepository.RemoteFile f : dataSource) {
-                            if (f.path.startsWith(folderPath)) {
-                                totalItems++;
-                            }
-                        }
-                    }
-                    tvCount.setText(totalItems + " 份文档");
-                    tvCount.setAlpha(0.35f); // 文件夹计数显示较淡
-                }
-                else if (itemText.startsWith("📄 ")) {
-                    // --- 文件逻辑：显示题目数量 ---
-                    String fileName = itemText.replace("📄 ", "");
-                    String fullPath = currentExplorerPath + fileName;
-
-                    // 核心优化：即便在云端模式，如果本地已下载，也显示题目数量
-                    if (repository.isFileDownloaded(fullPath)) {
-                        int count = repository.getLocalFileLineCount(fullPath);
-                        tvCount.setText(count + " 题");
-                        tvCount.setAlpha(0.65f); // 题目数量显示较清晰
-                    } else {
-                        // 尚未下载的云端文件
-                        tvCount.setText("云端");
-                        tvCount.setAlpha(0.4f);
-                    }
-                }
-                else {
-                    tvCount.setVisibility(View.GONE);
-                }
-
+                // 简单处理计数显示
+                tvCount.setVisibility(itemText.startsWith("📁") ? View.VISIBLE : View.GONE);
                 return convertView;
             }
-
         };
-
         listView.setAdapter(adapter);
+        builder.setView(layout).setNegativeButton("关闭", null);
 
-        builder.setView(layout);
-        builder.setNegativeButton("关闭", null);
-
-        if (isExploringLocal) {
-            builder.setNeutralButton("清空本地", (d, w) -> {
-                new AlertDialog.Builder(activity)
-                        .setTitle("确认清空？")
-                        .setMessage("这将删除所有已下载的题库文件。")
-                        .setPositiveButton("确定", (d2, w2) -> {
-                            deleteRecursive(new java.io.File(activity.getFilesDir(), "data"));
-                            fetchLocalFilesAndShowDialog();
-                        })
-                        .setNegativeButton("取消", null).show();
-            });
-        }
-
-        AlertDialog dialog = builder.create();
+        final AlertDialog dialog = builder.create(); // 声明为 final 以供内部调用
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
             String itemText = adapter.getItem(position);
             if (itemText == null) return;
 
+            // 1. 处理返回上一级
             if (itemText.equals(".. (返回上一级)")) {
                 String temp = currentExplorerPath.substring(0, currentExplorerPath.length() - 1);
                 int lastSlash = temp.lastIndexOf('/');
@@ -758,18 +689,43 @@ public class SidebarLogic {
                 return;
             }
 
+            // 2. 处理进入文件夹
             if (itemText.startsWith("📁 ")) {
                 currentExplorerPath += itemText.replace("📁 ", "") + "/";
                 updateExplorerView(tvPath, adapter);
                 return;
             }
 
+            // 3. 处理文件点击
             if (itemText.startsWith("📄 ")) {
                 String fileName = itemText.replace("📄 ", "");
                 String fullPath = currentExplorerPath + fileName;
                 dialog.dismiss();
-                if (isExploringLocal) loadLocalProblemSet(fullPath);
-                else startDownloadWithProgress(fullPath, fileName);
+
+                if (isExploringDocs) {
+                    // === 核心逻辑：准备滑动文档列表 ===
+                    List<String> allDocsInFolder = new ArrayList<>();
+                    // 从当前 adapter 中提取所有文档（排除目录项）
+                    for (int i = 0; i < adapter.getCount(); i++) {
+                        String text = adapter.getItem(i);
+                        if (text != null && text.startsWith("📄 ")) {
+                            allDocsInFolder.add(text.replace("📄 ", ""));
+                        }
+                    }
+
+                    // 排序：确保 (1) 内容.md 在 (2) 内容.md 之前
+                    Collections.sort(allDocsInFolder);
+
+                    // 找到当前点击文件在列表中的位置
+                    int initialIndex = allDocsInFolder.indexOf(fileName);
+
+                    // 启动滑动预览对话框
+                    showScrollingDocsDialog(allDocsInFolder, initialIndex);
+                } else {
+                    // 原有的题库加载逻辑
+                    if (isExploringLocal) loadLocalProblemSet(fullPath);
+                    else startDownloadWithProgress(fullPath, fileName);
+                }
             }
         });
 
@@ -777,6 +733,81 @@ public class SidebarLogic {
         updateExplorerView(tvPath, adapter);
     }
 
+
+    private void showScrollingDocsDialog(List<String> docNames, int startIndex) {
+        // 使用全屏样式
+        AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
+
+        ViewPager2 viewPager = new ViewPager2(activity);
+        viewPager.setLayoutParams(new ViewGroup.LayoutParams(-1, -1));
+
+        // 设置适配器
+        viewPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+                WebView wv = new WebView(activity);
+                wv.setLayoutParams(new ViewGroup.LayoutParams(-1, -1));
+                // 必须开启 JS 以支持 MathJax
+                WebSettings s = wv.getSettings();
+                s.setJavaScriptEnabled(true);
+                s.setAllowFileAccess(true);
+                s.setAllowUniversalAccessFromFileURLs(true);
+                return new RecyclerView.ViewHolder(wv) {};
+            }
+
+            @Override
+            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
+                WebView wv = (WebView) holder.itemView;
+                String fileName = docNames.get(position);
+                String fullPath = currentExplorerPath + fileName;
+
+                // 加载内容逻辑（异步）
+                new Thread(() -> {
+                    try {
+                        String content;
+                        if (isExploringLocal) {
+                            java.io.File file = new java.io.File(activity.getFilesDir(), fullPath);
+                            java.io.FileInputStream fis = new java.io.FileInputStream(file);
+                            byte[] data = new byte[(int) file.length()];
+                            fis.read(data); fis.close();
+                            content = new String(data, "UTF-8");
+                        } else {
+                            content = repository.downloadRawText(fullPath);
+                            saveDocToLocal(fullPath, content); // 自动缓存
+                        }
+
+                        String html = MarkdownUtils.renderMarkdown(content);
+                        activity.runOnUiThread(() -> wv.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null));
+                    } catch (Exception e) {
+                        activity.runOnUiThread(() -> wv.loadData("<html><body>加载失败</body></html>", "text/html", "UTF-8"));
+                    }
+                }).start();
+            }
+
+            @Override
+            public int getItemCount() { return docNames.size(); }
+        });
+
+        // 跳转到初始点击的那一篇
+        viewPager.setCurrentItem(startIndex, false);
+
+        // 创建布局容器，添加一个关闭按钮
+        LinearLayout container = new LinearLayout(activity);
+        container.setOrientation(LinearLayout.VERTICAL);
+
+        Button btnClose = new Button(activity);
+        btnClose.setText("✕ 关闭文档预览 (左滑右滑可切换)");
+        btnClose.setBackgroundColor(0x10000000);
+        btnClose.setOnClickListener(v -> b.create().dismiss()); // 这里逻辑需要微调以获取对话框实例
+
+        container.addView(btnClose);
+        container.addView(viewPager);
+
+        b.setView(container);
+        AlertDialog docDialog = b.create();
+        btnClose.setOnClickListener(v -> docDialog.dismiss());
+        docDialog.show();
+    }
 
     // 辅助递归删除（放在 SidebarLogic 类末尾即可）
     private void deleteRecursive(java.io.File fileOrDirectory) {
@@ -786,6 +817,50 @@ public class SidebarLogic {
         fileOrDirectory.delete();
     }
 
+    private void handleDocSelection(String path, String name) {
+        new Thread(() -> {
+            try {
+                String content;
+                if (isExploringLocal) {
+                    // 本地模式：读取
+                    java.io.File file = new java.io.File(activity.getFilesDir(), path);
+                    java.io.FileInputStream fis = new java.io.FileInputStream(file);
+                    byte[] data = new byte[(int) file.length()];
+                    fis.read(data); fis.close();
+                    content = new String(data, "UTF-8");
+                } else {
+                    // 在线模式：下载并同时保存到本地
+                    content = repository.downloadRawText(path);
+                    saveDocToLocal(path, content); // 实现“看过即下载”
+
+                    // 提示用户已下载（可选）
+                    activity.runOnUiThread(() -> Toast.makeText(activity, "文档已缓存至本地", Toast.LENGTH_SHORT).show());
+                }
+
+                final String html = MarkdownUtils.renderMarkdown(content);
+                activity.runOnUiThread(() -> showMarkdownWebViewDialog(name, html));
+            } catch (Exception e) {
+                activity.runOnUiThread(() -> Toast.makeText(activity, "文档加载失败", Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    private void showMarkdownWebViewDialog(String title, String html) {
+        AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
+        WebView wv = new WebView(activity);
+        // --- 核心修复：开启 WebView 的脚本执行能力 ---
+        WebSettings settings = wv.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setAllowFileAccess(true); // 允许访问 assets
+        settings.setDomStorageEnabled(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        // ------------------------------------------
+        wv.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null);
+        b.setView(wv);
+        b.setPositiveButton("关闭", null);
+        b.setTitle(title);
+        b.show();
+    }
 
     private void updateExplorerView(TextView tvPath, ArrayAdapter<String> adapter) {
         tvPath.setText("当前位置: " + (isExploringLocal ? "本地/" : "远程/") + currentExplorerPath);
@@ -808,7 +883,10 @@ public class SidebarLogic {
             }
         }
 
-        if (!currentExplorerPath.equals("data/")) items.add(".. (返回上一级)");
+        if (currentExplorerPath.contains("/") && currentExplorerPath.length() > 6) {
+            // 这里的 6 是为了避开 "data/" 或 "files/"
+            items.add(0, ".. (返回上一级)");
+        }
 
         List<String> sortedFolders = new ArrayList<>(folders);
         Collections.sort(sortedFolders);
@@ -1051,106 +1129,6 @@ public class SidebarLogic {
 
     private boolean isHelpFullScreen = false;
 
-    private void showHelpDialog() {
-        if (activity == null) return;
-
-        try {
-            final String htmlContent = MarkdownUtils.loadMarkdownFromAssets(activity, "help.md");
-
-            // 1. 创建 Dialog 并彻底去掉标题和默认背景
-            final android.app.Dialog dialog = new android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
-            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-
-            // 2. 根布局：全屏透明，点击阴影可以关闭（可选）
-            android.widget.RelativeLayout root = new android.widget.RelativeLayout(activity);
-            root.setBackgroundColor(android.graphics.Color.parseColor("#80000000")); // 半透明遮罩背景
-
-            // 3. 内容容器：这才是那个白色的“纸张”
-            final android.widget.LinearLayout contentBox = new android.widget.LinearLayout(activity);
-            contentBox.setOrientation(android.widget.LinearLayout.VERTICAL);
-            contentBox.setBackgroundColor(android.graphics.Color.WHITE);
-
-            // 4. 顶部控制栏
-            android.widget.RelativeLayout controlBar = new android.widget.RelativeLayout(activity);
-            controlBar.setPadding(30, 20, 30, 20);
-            controlBar.setBackgroundColor(android.graphics.Color.parseColor("#f6f8fa"));
-
-            final android.widget.Button btnFull = new android.widget.Button(activity);
-            btnFull.setText("全屏显示");
-            btnFull.setAllCaps(false);
-            btnFull.setBackground(null);
-            btnFull.setTextColor(android.graphics.Color.parseColor("#0366d6"));
-            controlBar.addView(btnFull);
-
-            android.widget.Button btnClose = new android.widget.Button(activity);
-            btnClose.setText("关闭");
-            btnClose.setAllCaps(false);
-            btnClose.setBackground(null);
-            btnClose.setTextColor(android.graphics.Color.GRAY);
-            android.widget.RelativeLayout.LayoutParams lpClose = new android.widget.RelativeLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            lpClose.addRule(android.widget.RelativeLayout.ALIGN_PARENT_RIGHT);
-            controlBar.addView(btnClose, lpClose);
-
-            contentBox.addView(controlBar);
-
-            // 5. WebView
-            final android.webkit.WebView webView = new android.webkit.WebView(activity);
-            webView.getSettings().setJavaScriptEnabled(true);
-            webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null);
-            contentBox.addView(webView, new android.widget.LinearLayout.LayoutParams(-1, -1));
-
-            // 将白色容器放入透明根布局
-            root.addView(contentBox);
-            dialog.setContentView(root);
-
-            // 6. 核心逻辑：切换全屏
-            Runnable updateLayout = () -> {
-                android.widget.RelativeLayout.LayoutParams params;
-                if (isHelpFullScreen) {
-                    // 真正全屏：无边距，占满屏幕
-                    params = new android.widget.RelativeLayout.LayoutParams(-1, -1);
-                    btnFull.setText("退出全屏");
-                } else {
-                    // 窗口模式：设置宽度并居中，高度占 75%
-                    int width = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.9);
-                    int height = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.75);
-                    params = new android.widget.RelativeLayout.LayoutParams(width, height);
-                    params.addRule(android.widget.RelativeLayout.CENTER_IN_PARENT);
-                    btnFull.setText("全屏显示");
-                }
-                contentBox.setLayoutParams(params);
-            };
-
-            btnFull.setOnClickListener(v -> {
-                isHelpFullScreen = !isHelpFullScreen;
-                updateLayout.run();
-            });
-
-            btnClose.setOnClickListener(v -> dialog.dismiss());
-
-            // 初始状态
-            isHelpFullScreen = false;
-            updateLayout.run();
-
-            dialog.show();
-
-            // 确保 Window 级别也是全屏的，防止黑边
-            android.view.Window window = dialog.getWindow();
-            if (window != null) {
-                window.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-
-
-
-
-
     // [Restored] showCalculatorDialog
     // SidebarLogic.java 中的计算器对话框完整实现
     private void showCalculatorDialog() {
@@ -1358,7 +1336,37 @@ public class SidebarLogic {
         return list;
     }
 
+    // 1. 新增：通用的远程文件抓取并打开资源管理器方法
+    private void fetchFilesAndShow(String rootDir, String extension) {
+        Toast.makeText(activity, "正在同步目录...", Toast.LENGTH_SHORT).show();
+        repository.fetchRemoteFileTree(rootDir, extension, new ProblemRepository.MenuDataCallback() {
+            @Override
+            public void onSuccess(List<ProblemRepository.RemoteFile> files) {
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    cachedRemoteFiles = files;
+                    currentExplorerPath = rootDir;
+                    showFileExplorerDialog();
+                });
+            }
+            @Override
+            public void onFail(String error) {
+                new Handler(Looper.getMainLooper()).post(() ->
+                        Toast.makeText(activity, "同步失败: " + error, Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
 
+    // 2. 新增：保存文档到本地
+    private void saveDocToLocal(String path, String content) {
+        try {
+            java.io.File file = new java.io.File(activity.getFilesDir(), path);
+            java.io.File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.io.FileWriter fw = new java.io.FileWriter(file);
+            fw.write(content);
+            fw.close();
+        } catch (Exception e) { e.printStackTrace(); }
+    }
 
 
     private Fraction parseTokenToFraction(String token) {

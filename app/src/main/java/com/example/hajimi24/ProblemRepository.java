@@ -56,25 +56,11 @@ public class ProblemRepository {
     //  Part 1: 在线逻辑 (Online Mode)
     // ==========================================
 
-    public void fetchRemoteFileTree(MenuDataCallback callback) {
-        new Thread(() -> {
-            try {
-                String jsonStr = downloadString(GITHUB_TREE_URL);
-                JSONObject root = new JSONObject(jsonStr);
-                JSONArray tree = root.getJSONArray("tree");
-                List<RemoteFile> result = new ArrayList<>();
-                for (int i = 0; i < tree.length(); i++) {
-                    JSONObject item = tree.getJSONObject(i);
-                    String path = item.getString("path");
-                    if (path.startsWith("data/") && path.endsWith(".txt")) {
-                        String name = path.substring(path.lastIndexOf('/') + 1);
-                        String sha = item.getString("sha"); // 获取 SHA
-                        result.add(new RemoteFile(path, name, sha));
-                    }
-                }
-                if (callback != null) callback.onSuccess(result);
-            } catch (Exception e) { e.printStackTrace(); }
-        }).start();
+
+    // 新增：仅下载原始字符串内容（不解析为 Problem）
+    public String downloadRawText(String filePath) throws IOException {
+        String url = GITHUB_RAW_BASE + filePath.replace(" ", "%20");
+        return downloadStringWithProgress(url, null);
     }
 
     public void saveLocalFileSHA(String path, String sha) {
@@ -160,18 +146,19 @@ public class ProblemRepository {
     }
 
     // 1. 递归获取本地文件 (支持子文件夹)
-    public void fetchLocalFileTree(MenuDataCallback callback) {
+    public void fetchLocalFileTree(String rootDir, MenuDataCallback callback) {
         new Thread(() -> {
             List<RemoteFile> result = new ArrayList<>();
             try {
-                // 扫描内部存储
-                File dataDir = new File(context.getFilesDir(), "data");
-                if (dataDir.exists()) {
-                    scanLocalDirectory(dataDir, "data/", result);
+                // 1. 扫描内部存储对应目录
+                File targetDir = new File(context.getFilesDir(), rootDir);
+                if (targetDir.exists()) {
+                    // 自动根据 rootDir 确定前缀
+                    String prefix = rootDir.endsWith("/") ? rootDir : rootDir + "/";
+                    scanLocalDirectory(targetDir, prefix, result);
                 }
 
-                // 扫描 Assets (Assets 扫描比较特殊，仅扫描一级 data 目录作为演示，
-                // 建议将下载的文件与内置文件路径统一)
+                // 扫描 Assets (Assets 扫描比较特殊，仅扫描一级 data 目录作为演示
                 String[] assetFiles = context.getAssets().list("data");
                 if (assetFiles != null) {
                     for (String fileName : assetFiles) {
@@ -197,8 +184,12 @@ public class ProblemRepository {
         for (File f : files) {
             if (f.isDirectory()) {
                 scanLocalDirectory(f, prefix + f.getName() + "/", result);
-            } else if (f.getName().endsWith(".txt")) {
-                result.add(new RemoteFile(prefix + f.getName(), f.getName(), ""));
+            } else {
+                // 支持 .txt (题库) 和 .md (文档)
+                String name = f.getName();
+                if (name.endsWith(".txt") || name.endsWith(".md")) {
+                    result.add(new RemoteFile(prefix + name, name, ""));
+                }
             }
         }
     }
@@ -584,5 +575,30 @@ public class ProblemRepository {
             // 都不存在则返回 null
             return null;
         }
+    }
+
+    // 修改：增加 rootDir 和 extension 参数，使其支持扫描不同目录和后缀
+    public void fetchRemoteFileTree(String rootDir, String extension, MenuDataCallback callback) {
+        new Thread(() -> {
+            try {
+                String jsonStr = downloadString(GITHUB_TREE_URL);
+                JSONObject root = new JSONObject(jsonStr);
+                JSONArray tree = root.getJSONArray("tree");
+                List<RemoteFile> result = new ArrayList<>();
+                for (int i = 0; i < tree.length(); i++) {
+                    JSONObject item = tree.getJSONObject(i);
+                    String path = item.getString("path");
+                    // 现在 rootDir 和 extension 都能正确识别了
+                    if (path.startsWith(rootDir) && path.endsWith(extension)) {
+                        String name = path.substring(path.lastIndexOf('/') + 1);
+                        String sha = item.getString("sha");
+                        result.add(new RemoteFile(path, name, sha));
+                    }
+                }
+                if (callback != null) callback.onSuccess(result);
+            } catch (Exception e) {
+                if (callback != null) callback.onFail(e.getMessage());
+            }
+        }).start();
     }
 }
