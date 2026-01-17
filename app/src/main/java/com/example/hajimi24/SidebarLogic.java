@@ -8,6 +8,10 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.webkit.WebView;
+import android.webkit.WebSettings;
+import android.database.DatabaseUtils; // 如果后续需要更复杂的转义
+import android.webkit.WebView;
 import android.view.SubMenu;
 import android.view.View;
 import android.widget.AdapterView;
@@ -156,28 +160,20 @@ public class SidebarLogic {
             @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
                 int val = p - 200;
                 tv2.setText("\n信息区底部偏移: " + val + " dp");
-
                 View tvMsg = activity.findViewById(R.id.tv_message_area);
                 View wvMath = activity.findViewById(R.id.wv_math_message);
-
-                // 1. 核心修改：只要开始操作滑块，强制让 LaTeX 区域消失
                 if (wvMath != null) {
                     wvMath.setVisibility(View.GONE);
-                    // 同步更新 WebView 的布局参数，确保下次显示时位置也是正确的
                     androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpW =
                             (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) wvMath.getLayoutParams();
                     lpW.bottomMargin = (int) (val * density);
                     wvMath.setLayoutParams(lpW);
                 }
-
-                // 2. 更新文本框的位置并显示预览文字
                 if (tvMsg != null) {
                     androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpT =
                             (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
                     lpT.bottomMargin = (int) (val * density);
                     tvMsg.setLayoutParams(lpT);
-
-                    // 非此即彼：隐藏 WebView 的同时，显示文本框作为位置参考
                     tvMsg.setVisibility(View.VISIBLE);
                     ((TextView)tvMsg).setText("预览：底部信息区位置");
                 }
@@ -189,20 +185,66 @@ public class SidebarLogic {
         });
         layout.addView(sb2);
 
-        // --- 3. 粗体切换 ---
+        // --- 分割线 ---
         View divider = new View(activity);
-        LinearLayout.LayoutParams dpLp = new LinearLayout.LayoutParams(-1, 2); dpLp.setMargins(0, 40, 0, 40);
+        LinearLayout.LayoutParams dpLp = new LinearLayout.LayoutParams(-1, 2); dpLp.setMargins(0, 40, 0, 20);
         divider.setLayoutParams(dpLp); divider.setBackgroundColor(android.graphics.Color.LTGRAY);
         layout.addView(divider);
 
+        // --- 3. 主题模式切换 (整合自 555) ---
+        TextView tvThemeLabel = new TextView(activity);
+        tvThemeLabel.setText("🌓 主题模式选择");
+        tvThemeLabel.setPadding(0, 10, 0, 10);
+        layout.addView(tvThemeLabel);
+
+        Spinner spinnerTheme = new Spinner(activity);
+        String[] themes = {"跟随系统", "日间模式", "夜间模式"};
+        ArrayAdapter<String> themeAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, themes);
+        themeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerTheme.setAdapter(themeAdapter);
+
+        // 设置当前选中项
+        int currentMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        if (currentMode == AppCompatDelegate.MODE_NIGHT_NO) spinnerTheme.setSelection(1);
+        else if (currentMode == AppCompatDelegate.MODE_NIGHT_YES) spinnerTheme.setSelection(2);
+        else spinnerTheme.setSelection(0);
+
+        spinnerTheme.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                int selectedMode;
+                if (position == 1) selectedMode = AppCompatDelegate.MODE_NIGHT_NO;
+                else if (position == 2) selectedMode = AppCompatDelegate.MODE_NIGHT_YES;
+                else selectedMode = AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
+
+                if (selectedMode != prefs.getInt("theme_mode", -1)) {
+                    prefs.edit().putInt("theme_mode", selectedMode).apply();
+                    AppCompatDelegate.setDefaultNightMode(selectedMode);
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+        layout.addView(spinnerTheme);
+
+        // --- 4. 开关项 ---
         androidx.appcompat.widget.SwitchCompat swBold = new androidx.appcompat.widget.SwitchCompat(activity);
         swBold.setText("加粗数字和符号");
+        swBold.setPadding(0, 20, 0, 10);
         swBold.setChecked(prefs.getBoolean("use_bold_text", false));
         swBold.setOnCheckedChangeListener((v, c) -> {
             prefs.edit().putBoolean("use_bold_text", c).apply();
             if (activity instanceof MainActivity) ((MainActivity) activity).applyTextWeight(c);
         });
         layout.addView(swBold);
+
+        androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
+        swLatex.setText("启用 LaTeX 高质量渲染");
+        swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
+        swLatex.setOnCheckedChangeListener((v, c) -> {
+            prefs.edit().putBoolean("use_latex_mode", c).apply();
+            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+        });
+        layout.addView(swLatex);
 
         builder.setView(scrollView);
         builder.setPositiveButton("完成", (d, w) -> {
@@ -213,51 +255,24 @@ public class SidebarLogic {
         final AlertDialog dialog = builder.create();
         dialog.show();
 
-        // [核心修复]：窥屏逻辑
+        // 窥屏逻辑 (保持不变)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.getDecorView().setOnTouchListener((v, event) -> {
-                float rawX = event.getRawX();
-                float rawY = event.getRawY();
-
-                // 判定是否点击在中间白色对话框区域内
-                int[] loc = new int[2];
-                scrollView.getLocationOnScreen(loc);
+                float rawX = event.getRawX(); float rawY = event.getRawY();
+                int[] loc = new int[2]; scrollView.getLocationOnScreen(loc);
                 boolean isInside = rawX >= loc[0] && rawX <= (loc[0] + scrollView.getWidth()) &&
                         rawY >= loc[1] && rawY <= (loc[1] + scrollView.getHeight());
-
-                if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
-                    if (!isInside) {
-                        // 按住背景：全透明且移除阴影
-                        window.getDecorView().setAlpha(0f);
-                        window.setDimAmount(0f);
-                        return true; // 拦截事件以确保能收到 UP
-                    }
-                } else if (event.getAction() == android.view.MotionEvent.ACTION_UP ||
-                        event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
-                    // 无论在哪里松手，只要是透明状态就恢复
-                    if (window.getDecorView().getAlpha() < 1f) {
-                        window.getDecorView().setAlpha(1f);
-                        window.setDimAmount(0.5f);
-                        return true;
-                    }
+                if (event.getAction() == android.view.MotionEvent.ACTION_DOWN && !isInside) {
+                    window.getDecorView().setAlpha(0f); window.setDimAmount(0f); return true;
+                } else if (event.getAction() == android.view.MotionEvent.ACTION_UP || event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                    if (window.getDecorView().getAlpha() < 1f) { window.getDecorView().setAlpha(1f); window.setDimAmount(0.5f); return true; }
                 }
-                return false; // 允许正常滑动 SeekBar
+                return false;
             });
-            // 使用 LaTeX
-            androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
-            swLatex.setText("启用 LaTeX 高质量渲染");
-            swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
-            swLatex.setOnCheckedChangeListener((v, c) -> {
-                prefs.edit().putBoolean("use_latex_mode", c).apply();
-                // 强制清理 MainActivity 的显示状态，让用户重新点击时刷新渲染器
-                if (activity instanceof MainActivity) {
-                    ((MainActivity) activity).updateDisplay("", null, false);
-                }
-            });
-            layout.addView(swLatex);
         }
     }
+
 
 
     private String formatFileSize(long size) {
@@ -412,6 +427,11 @@ public class SidebarLogic {
                 return true;
             }
 
+            if (id == 555) {
+                showLatexSettingsDialog(); // 修改为调用新方法
+                return true;
+            }
+
             if (id == 3000) { // 本地题库按钮
                 isExploringLocal = true; // 设置为 true
                 fetchLocalFilesAndShowDialog();
@@ -458,7 +478,7 @@ public class SidebarLogic {
         menu.add(Menu.NONE, 888, Menu.NONE, "📖 游戏说明书");
         menu.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
         menu.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
-        menu.add(Menu.NONE, 555, Menu.NONE, "🎨 主题设置");
+        menu.add(Menu.NONE, 555, Menu.NONE, "📐 LaTeX 显示设置");
 
         SubMenu randomGroup = menu.addSubMenu("🎲 随机休闲练习");
         randomGroup.add(Menu.NONE, 103, Menu.NONE, "随机休闲 (3数)");
@@ -466,9 +486,40 @@ public class SidebarLogic {
         randomGroup.add(Menu.NONE, 105, Menu.NONE, "随机休闲 (5数)");
     }
 
-    // ==========================================
-    //  核心逻辑：文件资源管理器 (File Explorer)
-    // ==========================================
+    private void showLatexSettingsDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("📐 LaTeX 显示设置");
+
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(60, 40, 60, 40);
+
+        SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+
+        // 使用标准的 SwitchCompat，文字保持固定
+        androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
+        swLatex.setText("启用 LaTeX 高质量渲染");
+        swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
+        swLatex.setOnCheckedChangeListener((v, c) -> {
+            prefs.edit().putBoolean("use_latex_mode", c).apply();
+            if (activity instanceof MainActivity) {
+                // 立即生效：清空当前显示
+                ((MainActivity) activity).updateDisplay("", null, false);
+            }
+        });
+        layout.addView(swLatex);
+
+        TextView tvHint = new TextView(activity);
+        tvHint.setText("\n开启后将使用 MathJax 引擎渲染公式。\n已适配日间(黑)/夜间(淡黄)配色。");
+        tvHint.setTextSize(12);
+        tvHint.setAlpha(0.5f);
+        layout.addView(tvHint);
+
+        builder.setView(layout);
+        builder.setPositiveButton("确定", null);
+        builder.create().show();
+    }
+
 
     private void fetchRemoteFilesAndShowDialog() {
         Toast.makeText(activity, "正在刷新目录...", Toast.LENGTH_SHORT).show();

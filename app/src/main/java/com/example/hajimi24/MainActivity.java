@@ -99,58 +99,119 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     private void renderLatexInWebView(WebView wv, String content) {
+
+        // --- 新增：获取当前主题的主文本颜色 ---
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
+        int colorInt = typedValue.data;
+        // 将颜色转换为 CSS 认可的十六进制格式 (例如 #000000 或 #FFFFFF)
+        String colorHex = String.format("#%06X", (0xFFFFFF & colorInt));
+        // ------------------------------------
+
         WebSettings settings = wv.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setDomStorageEnabled(true);
         settings.setAllowUniversalAccessFromFileURLs(true);
 
-        // 1. 消除滞留：加载前先隐藏
-        wv.setVisibility(View.INVISIBLE);
+        wv.setVisibility(View.VISIBLE);
+        wv.setAlpha(0.01f);
 
-        // 2. 智能字号：检测 \cfrac 数量
         int cfracCount = (content.length() - content.replace("cfrac", "").length()) / 5;
-        String fontSize = (cfracCount >= 2) ? "1.05em" : "1.35em";
+        String fontSize = (cfracCount >= 2) ? "100%" : "125%";
 
         wv.setBackgroundColor(0);
-        String escaped = content.replace("\\", "\\\\").replace("'", "\\'");
 
-        // 3. 构建 HTML：移除所有 JS 内部注释，防止语法错误
-        String html = "<!DOCTYPE html><html><head>" +
-                "<meta charset='UTF-8'>" +
-                "<link rel='stylesheet' href='katex.min.css'>" +
-                "<script src='katex.min.js'></script>" +
-                "<style>" +
-                "  body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
-                "         height: 100vh; background: transparent; overflow: hidden; " +
-                "         color: #000000; font-family: sans-serif; font-weight: bold; }" +
-                "  .katex-display { margin: 0 !important; } " +
-                "  #math { font-size: " + fontSize + "; text-align: center; }" +
-                "</style>" +
-                "</head><body><div id='math'></div><script>" +
-                "  window.onload = function() {" +
-                "    try {" +
-                "      if (typeof katex !== 'undefined') {" +
-                "          /* 这里的渲染参数 displayMode: true 是括号自适应的关键 */" +
-                "          katex.render('\\\\displaystyle ' + '" + escaped + "', document.getElementById('math'), " +
-                "              { throwOnError: false, displayMode: true });" +
-                "      }" +
-                "    } catch (e) { document.getElementById('math').textContent = 'Error'; }" +
-                "  };" +
-                "</script></body></html>";
+        // ⚠️ IMPORTANT:
+        // Do NOT escape backslashes.
+        // Only escape HTML special characters.
+        String escaped = content
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
 
-        // 4. 渲染完成后再显示，消除闪烁和旧内容滞留
-        wv.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                wv.postDelayed(() -> wv.setVisibility(View.VISIBLE), 40);
+        String html =
+                "<!DOCTYPE html>" +
+                        "<html>" +
+                        "<head>" +
+                        "<meta charset='UTF-8'>" +
+                        "<style>" +
+                        "  body {" +
+                        "    margin: 0;" +
+                        "    padding: 0;" +
+                        "    display: flex;" +
+                        "    justify-content: center;" +
+                        "    align-items: center;" +
+                        "    height: 100vh;" +
+                        "    background: transparent;" +
+                        "    overflow: hidden;" +
+                        "    /* 1. 默认日间模式颜色：黑色 */" +
+                        "    color: #000000;" +
+                        "  }" +
+                        "  " +
+                        "  /* 2. 核心修改：媒体查询适配夜间模式 */" +
+                        "  @media (prefers-color-scheme: dark) {" +
+                        "    body {" +
+                        "      /* 夜间模式颜色：淡黄色 (LightYellow) */" +
+                        "      color: #FFFFE0;" +
+                        "    }" +
+                        "  }" +
+                        "  " +
+                        "  #math {" +
+                        "    font-size: " + fontSize + ";" +
+                        "    text-align: center;" +
+                        "    width: 100%;" +
+                        "  }" +
+                        "</style>" +
+
+                        "<script>" +
+                        "  window.MathJax = {" +
+                        "    tex: {" +
+                        "      inlineMath: [['$', '$']]," +
+                        "      displayMath: [['$$', '$$']]" +
+                        "    }," +
+                        "    svg: { fontCache: 'global' }," +
+                        "    startup: {" +
+                        "      ready: () => {" +
+                        "        MathJax.startup.defaultReady();" +
+                        "        MathJax.startup.promise.then(() => {" +
+                        "          window.android.onRenderFinished();" +
+                        "        });" +
+                        "      }" +
+                        "    }" +
+                        "  };" +
+                        "</script>" +
+
+                        // do NOT use async
+                        "<script id='MathJax-script' src='file:///android_asset/mathjax/tex-svg.js'></script>" +
+                        "</head>" +
+
+                        "<body>" +
+                        "  <div id='math'>$$\\displaystyle " + escaped + "$$</div>" +
+                        "</body>" +
+                        "</html>";
+
+        wv.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void onRenderFinished() {
+                wv.post(() ->
+                        wv.animate().alpha(1.0f).setDuration(100).start()
+                );
             }
-        });
+        }, "android");
 
-        // 必须通过 file 协议指向 assets，否则 fonts 无法加载导致括号断裂
-        wv.loadDataWithBaseURL("file:///android_asset/katex/", html, "text/html", "UTF-8", null);
+        wv.loadDataWithBaseURL(
+                "file:///android_asset/mathjax/",
+                html,
+                "text/html",
+                "UTF-8",
+                null
+        );
     }
+
+
+
+
 
     // 3. 新增：带自定义高度的提示方法 (用于替换原来的 Toast)
     public void showCustomToast(String text) {
