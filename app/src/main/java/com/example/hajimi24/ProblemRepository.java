@@ -146,37 +146,41 @@ public class ProblemRepository {
     }
 
     // 1. 递归获取本地文件 (支持子文件夹)
+    // 完整替换：fetchLocalFileTree
     public void fetchLocalFileTree(String rootDir, MenuDataCallback callback) {
         new Thread(() -> {
             List<RemoteFile> result = new ArrayList<>();
             try {
-                // 1. 扫描内部存储对应目录
+                // 1. 扫描手机内部存储空间
                 File targetDir = new File(context.getFilesDir(), rootDir);
+                String prefix = rootDir.endsWith("/") ? rootDir : rootDir + "/";
                 if (targetDir.exists()) {
-                    // 自动根据 rootDir 确定前缀
-                    String prefix = rootDir.endsWith("/") ? rootDir : rootDir + "/";
                     scanLocalDirectory(targetDir, prefix, result);
                 }
 
-                // 扫描 Assets (Assets 扫描比较特殊，仅扫描一级 data 目录作为演示
-                String[] assetFiles = context.getAssets().list("data");
+                // 2. 扫描 APK 内置的 Assets 目录 (同步搜索 rootDir)
+                String assetPath = rootDir.endsWith("/") ? rootDir.substring(0, rootDir.length() - 1) : rootDir;
+                String[] assetFiles = context.getAssets().list(assetPath);
                 if (assetFiles != null) {
                     for (String fileName : assetFiles) {
-                        if (fileName.endsWith(".txt")) {
-                            String path = "data/" + fileName;
+                        // 匹配题库 (.txt) 或 文档 (.md)
+                        if (fileName.endsWith(".txt") || fileName.endsWith(".md")) {
+                            String path = prefix + fileName;
+                            // 如果下载目录中已经有了（用户更新版），则不再重复添加内置版
                             boolean exists = false;
-                            for(RemoteFile rf : result) if(rf.path.equals(path)) exists = true;
-                            if(!exists) result.add(new RemoteFile(path, fileName, ""));
+                            for (RemoteFile rf : result) if (rf.path.equals(path)) exists = true;
+                            if (!exists) result.add(new RemoteFile(path, fileName, ""));
                         }
                     }
                 }
 
                 if (callback != null) callback.onSuccess(result);
             } catch (Exception e) {
-                if (callback != null) callback.onFail(e.getMessage());
+                if (callback != null) callback.onFail("本地读取失败: " + e.getMessage());
             }
         }).start();
     }
+
     // 辅助方法：递归遍历文件夹
     private void scanLocalDirectory(File dir, String prefix, List<RemoteFile> result) {
         File[] files = dir.listFiles();
@@ -578,17 +582,26 @@ public class ProblemRepository {
     }
 
     // 修改：增加 rootDir 和 extension 参数，使其支持扫描不同目录和后缀
+    // 完整替换：fetchRemoteFileTree
     public void fetchRemoteFileTree(String rootDir, String extension, MenuDataCallback callback) {
         new Thread(() -> {
             try {
                 String jsonStr = downloadString(GITHUB_TREE_URL);
+
+                // --- 核心修复：防止网络错误导致的空指针崩溃 ---
+                if (jsonStr == null) {
+                    if (callback != null) callback.onFail("无法连接到 GitHub (请检查网络)");
+                    return;
+                }
+                // ----------------------------------------
+
                 JSONObject root = new JSONObject(jsonStr);
                 JSONArray tree = root.getJSONArray("tree");
                 List<RemoteFile> result = new ArrayList<>();
                 for (int i = 0; i < tree.length(); i++) {
                     JSONObject item = tree.getJSONObject(i);
                     String path = item.getString("path");
-                    // 现在 rootDir 和 extension 都能正确识别了
+                    // 根据传入的 rootDir 和 extension 精准过滤
                     if (path.startsWith(rootDir) && path.endsWith(extension)) {
                         String name = path.substring(path.lastIndexOf('/') + 1);
                         String sha = item.getString("sha");
@@ -597,8 +610,9 @@ public class ProblemRepository {
                 }
                 if (callback != null) callback.onSuccess(result);
             } catch (Exception e) {
-                if (callback != null) callback.onFail(e.getMessage());
+                if (callback != null) callback.onFail("同步失败: " + e.getMessage());
             }
         }).start();
     }
+
 }
