@@ -47,7 +47,7 @@ public class ProblemRepository {
     }
 
     public interface FileDownloadCallback {
-        void onProgress(int percent);
+        void onProgress(int percent, long currentBytes, long totalBytes);
         void onSuccess(List<Problem> problems, String fileName);
         void onFail(String error);
     }
@@ -81,6 +81,39 @@ public class ProblemRepository {
         context.getSharedPreferences("FileMeta", Context.MODE_PRIVATE)
                 .edit().putString(path, sha).apply();
     }
+    // 统计某个路径下的直属内容数量 (用于显示在文件夹右侧)
+    public String getFolderContentSummary(String path, List<RemoteFile> dataSource) {
+        int folders = 0;
+        int files = 0;
+        for (RemoteFile f : dataSource) {
+            if (f.path.startsWith(path) && !f.path.equals(path)) {
+                String relative = f.path.substring(path.length());
+                if (relative.contains("/")) folders++; // 这里只是粗略统计，为了准确通常需要更复杂的逻辑
+                else files++;
+            }
+        }
+        // 简化逻辑：仅统计该文件夹下的总文件数
+        int totalFiles = 0;
+        for (RemoteFile f : dataSource) {
+            if (f.path.startsWith(path)) totalFiles++;
+        }
+        return totalFiles + " 项";
+    }
+    public int getLocalFileLineCount(String fileName) {
+        File file = new File(context.getFilesDir(), fileName);
+        if (!file.exists()) return 0;
+        int count = 0;
+        // 使用 try-with-resources 确保流关闭
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"))) {
+            while (reader.readLine() != null) {
+                count++;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return count;
+    }
+
     public boolean needsUpdate(String path, String remoteSha) {
         File file = new File(context.getFilesDir(), path);
         if (!file.exists()) return true; // 文件不存在，需要下载
@@ -204,17 +237,20 @@ public class ProblemRepository {
         HttpURLConnection connection = null;
         InputStream stream = null;
         ByteArrayOutputStream baos = null;
+
         try {
             URL url = new URL(urlString);
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(5000);
             connection.connect();
 
-            int length = connection.getContentLength(); // 注意：GitHub 可能返回 -1
+            // 核心修复：在这里获取长度，此时 connection 才被有效创建
+            int length = connection.getContentLength();
+
             stream = connection.getInputStream();
             baos = new ByteArrayOutputStream();
 
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[4096]; // 增加缓冲区大小到 4KB 提高效率
             int totalBytesRead = 0;
             int bytesRead;
 
@@ -224,24 +260,32 @@ public class ProblemRepository {
 
                 if (callback != null) {
                     if (length > 0) {
+                        // 计算百分比
                         int percent = (int) ((totalBytesRead * 100L) / length);
-                        callback.onProgress(percent);
+                        // [修改点]：回传三个参数：百分比，已下字节，总字节
+                        callback.onProgress(percent, totalBytesRead, length);
                     } else {
-                        // 如果拿不到长度，发送一个 -1 标志，让 UI 显示不确定进度
-                        callback.onProgress(-1);
+                        // 如果 GitHub 返回长度为 -1 (未知)
+                        callback.onProgress(-1, totalBytesRead, -1);
                     }
                 }
             }
-            // 结束时强制 100%
-            if (callback != null) callback.onProgress(100);
+
+            // 结束时确保发送 100% 状态
+            if (callback != null && length > 0) {
+                callback.onProgress(100, totalBytesRead, length);
+            }
 
             return baos.toString("UTF-8");
+
         } finally {
+            // 资源释放
             if (connection != null) connection.disconnect();
             if (stream != null) try { stream.close(); } catch (Exception e) {}
             if (baos != null) try { baos.close(); } catch (Exception e) {}
         }
     }
+
 
     // ==========================================
     //  Part 2: 本地逻辑与解析逻辑

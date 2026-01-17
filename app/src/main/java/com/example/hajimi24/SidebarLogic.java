@@ -63,6 +63,8 @@ public class SidebarLogic {
             }
         });
     }
+    private Handler toastHandler = new Handler(Looper.getMainLooper());
+    private Runnable toastRunnable;
     private void startBatchDownload() {
         Toast.makeText(activity, "正在同步题库列表...", Toast.LENGTH_SHORT).show();
 
@@ -101,6 +103,156 @@ public class SidebarLogic {
             }
         });
     }
+
+    private void showLayoutAdjustmentDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("📏 界面布局调整");
+
+        final ScrollView scrollView = new ScrollView(activity);
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(60, 40, 60, 40);
+        scrollView.addView(layout);
+
+        SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+        float density = activity.getResources().getDisplayMetrics().density;
+
+        // 💡 操作提示
+        TextView tvHint = new TextView(activity);
+        tvHint.setText("💡 提示：按住对话框外区域可预览布局");
+        tvHint.setTextSize(13);
+        tvHint.setTextColor(android.graphics.Color.GRAY);
+        tvHint.setPadding(0, 0, 0, 30);
+        layout.addView(tvHint);
+
+        // --- 1. 卡片顶部间距 ---
+        int top = prefs.getInt("grid_margin_top", 40);
+        final TextView tv1 = new TextView(activity);
+        tv1.setText("卡片顶部间距: " + top + " dp");
+        layout.addView(tv1);
+        android.widget.SeekBar sb1 = new android.widget.SeekBar(activity);
+        sb1.setMax(250); sb1.setProgress(top);
+        sb1.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                tv1.setText("卡片顶部间距: " + p + " dp");
+                applyGridMargin(p);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {
+                prefs.edit().putInt("grid_margin_top", s.getProgress()).apply();
+            }
+        });
+        layout.addView(sb1);
+
+        // --- 2. 信息区底部偏移 ---
+        int msgBottom = prefs.getInt("message_margin_bottom", 0);
+        final TextView tv2 = new TextView(activity);
+        tv2.setText("\n信息区底部偏移: " + msgBottom + " dp");
+        layout.addView(tv2);
+        android.widget.SeekBar sb2 = new android.widget.SeekBar(activity);
+        sb2.setMax(400); sb2.setProgress(msgBottom + 200); // 映射 -200 到 200
+        sb2.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                int val = p - 200;
+                tv2.setText("\n信息区底部偏移: " + val + " dp");
+                View tvMsg = activity.findViewById(R.id.tv_message_area);
+                if (tvMsg != null) {
+                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
+                    lp.bottomMargin = (int) (val * density);
+                    tvMsg.setLayoutParams(lp);
+                    tvMsg.setVisibility(View.VISIBLE);
+                    ((TextView)tvMsg).setText("预览：底部信息区位置");
+                }
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {
+                prefs.edit().putInt("message_margin_bottom", s.getProgress() - 200).apply();
+            }
+        });
+        layout.addView(sb2);
+
+        // --- 3. 粗体切换 ---
+        View divider = new View(activity);
+        LinearLayout.LayoutParams dpLp = new LinearLayout.LayoutParams(-1, 2); dpLp.setMargins(0, 40, 0, 40);
+        divider.setLayoutParams(dpLp); divider.setBackgroundColor(android.graphics.Color.LTGRAY);
+        layout.addView(divider);
+
+        androidx.appcompat.widget.SwitchCompat swBold = new androidx.appcompat.widget.SwitchCompat(activity);
+        swBold.setText("加粗数字和符号");
+        swBold.setChecked(prefs.getBoolean("use_bold_text", false));
+        swBold.setOnCheckedChangeListener((v, c) -> {
+            prefs.edit().putBoolean("use_bold_text", c).apply();
+            if (activity instanceof MainActivity) ((MainActivity) activity).applyTextWeight(c);
+        });
+        layout.addView(swBold);
+
+        builder.setView(scrollView);
+        builder.setPositiveButton("完成", (d, w) -> {
+            View tvMsg = activity.findViewById(R.id.tv_message_area);
+            if (tvMsg != null) ((TextView)tvMsg).setText("");
+        });
+
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // [核心修复]：窥屏逻辑
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.getDecorView().setOnTouchListener((v, event) -> {
+                float rawX = event.getRawX();
+                float rawY = event.getRawY();
+
+                // 判定是否点击在中间白色对话框区域内
+                int[] loc = new int[2];
+                scrollView.getLocationOnScreen(loc);
+                boolean isInside = rawX >= loc[0] && rawX <= (loc[0] + scrollView.getWidth()) &&
+                        rawY >= loc[1] && rawY <= (loc[1] + scrollView.getHeight());
+
+                if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                    if (!isInside) {
+                        // 按住背景：全透明且移除阴影
+                        window.getDecorView().setAlpha(0f);
+                        window.setDimAmount(0f);
+                        return true; // 拦截事件以确保能收到 UP
+                    }
+                } else if (event.getAction() == android.view.MotionEvent.ACTION_UP ||
+                        event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                    // 无论在哪里松手，只要是透明状态就恢复
+                    if (window.getDecorView().getAlpha() < 1f) {
+                        window.getDecorView().setAlpha(1f);
+                        window.setDimAmount(0.5f);
+                        return true;
+                    }
+                }
+                return false; // 允许正常滑动 SeekBar
+            });
+        }
+    }
+
+
+    private String formatFileSize(long size) {
+        if (size <= 0) return "0 B";
+        final String[] units = new String[]{"B", "KB", "MB", "GB"};
+        int digitGroups = (int) (Math.log10(size) / Math.log10(1024));
+        return String.format("%.1f %s", size / Math.pow(1024, digitGroups), units[digitGroups]);
+    }
+
+
+    // 辅助方法：动态修改 LayoutParams
+    private void applyGridMargin(int dpValue) {
+        View gridCards = activity.findViewById(R.id.grid_cards);
+        if (gridCards != null && gridCards.getLayoutParams() instanceof androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) {
+            androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp =
+                    (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) gridCards.getLayoutParams();
+
+            // 将 dp 转换为 px
+            float density = activity.getResources().getDisplayMetrics().density;
+            lp.topMargin = (int) (dpValue * density);
+
+            gridCards.setLayoutParams(lp);
+        }
+    }
+
 
     private void executeBatchDownload(List<ProblemRepository.RemoteFile> files) {
         isBatchCancelled = false;
@@ -241,7 +393,14 @@ public class SidebarLogic {
                 startBatchDownload();
                 return true;
             }
+            if (id == 444) {
+                // [新增]：在弹出调整对话框前，先缩回侧边栏
+                drawerLayout.closeDrawer(GravityCompat.START);
 
+                // 建议稍微延迟 200ms 弹出对话框，避开侧边栏动画，视觉更顺滑
+                new Handler(Looper.getMainLooper()).postDelayed(this::showLayoutAdjustmentDialog, 200);
+                return true;
+            }
             else if (id == 888) { showHelpDialog(); }
             else if (id == 777) { showModeSettingsDialog(); }
             else if (id == 666) { showCalculatorDialog(); }
@@ -265,7 +424,7 @@ public class SidebarLogic {
         menu.add(Menu.NONE, 2000, Menu.NONE, "🌐 在线题库 (浏览与下载)");
         menu.add(Menu.NONE, 3000, Menu.NONE, "📂 本地题库 (已下载)"); // 新增
         menu.add(Menu.NONE, 999, Menu.NONE, "📥 一键同步 (下载所有题目)");
-
+        menu.add(Menu.NONE, 444, Menu.NONE, "📏 调整布局");
         menu.add(Menu.NONE, 888, Menu.NONE, "📖 游戏说明书");
         menu.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
         menu.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
@@ -305,72 +464,164 @@ public class SidebarLogic {
 
     private void showFileExplorerDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle(isExploringLocal ? "本地题库" : "在线题库");
+        builder.setTitle(isExploringLocal ? "📂 本地题库" : "🌐 在线题库");
 
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
 
         TextView tvPath = new TextView(activity);
-        tvPath.setPadding(40, 30, 40, 10);
+        tvPath.setPadding(45, 30, 45, 10);
+        tvPath.setTextSize(13);
         layout.addView(tvPath);
 
         ListView listView = new ListView(activity);
-        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        listView.setLayoutParams(listParams);
+        listView.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1.0f));
         layout.addView(listView);
 
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(activity, android.R.layout.simple_list_item_1, new ArrayList<>());
+        // [核心修复]：不再依赖系统的 simple_list_item_1，完全手动构建视图
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(activity, 0, new ArrayList<>()) {
+            @Override
+            public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                // 1. 视图复用逻辑：确保类型一致
+                if (convertView == null || !(convertView instanceof LinearLayout)) {
+                    LinearLayout itemLayout = new LinearLayout(activity);
+                    itemLayout.setOrientation(LinearLayout.HORIZONTAL);
+                    itemLayout.setPadding(45, 40, 45, 40);
+
+                    TextView tvName = new TextView(activity);
+                    tvName.setTextSize(16);
+                    // 根据系统主题适配颜色
+                    int textColor = (activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                            == android.content.res.Configuration.UI_MODE_NIGHT_YES ? android.graphics.Color.WHITE : android.graphics.Color.BLACK;
+                    tvName.setTextColor(textColor);
+                    tvName.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1.0f));
+
+                    TextView tvCount = new TextView(activity);
+                    tvCount.setTextSize(13);
+                    tvCount.setGravity(android.view.Gravity.END);
+
+                    itemLayout.addView(tvName);
+                    itemLayout.addView(tvCount);
+                    convertView = itemLayout;
+                }
+
+                // 2. 提取组件
+                LinearLayout container = (LinearLayout) convertView;
+                TextView tvName = (TextView) container.getChildAt(0);
+                TextView tvCount = (TextView) container.getChildAt(1);
+
+                String itemText = getItem(position);
+                tvName.setText(itemText);
+                tvCount.setVisibility(View.VISIBLE);
+
+                // 获取当前模式的数据源（用于文件夹计数）
+                List<ProblemRepository.RemoteFile> dataSource = isExploringLocal ? cachedLocalFiles : cachedRemoteFiles;
+
+                if (itemText == null || itemText.equals(".. (返回上一级)")) {
+                    tvCount.setVisibility(View.GONE);
+                }
+                else if (itemText.startsWith("📁 ")) {
+                    // --- 文件夹逻辑：统计该目录下包含的文件总数 ---
+                    String folderName = itemText.replace("📁 ", "");
+                    String folderPath = currentExplorerPath + folderName + "/";
+                    int totalItems = 0;
+                    if (dataSource != null) {
+                        for (ProblemRepository.RemoteFile f : dataSource) {
+                            if (f.path.startsWith(folderPath)) {
+                                totalItems++;
+                            }
+                        }
+                    }
+                    tvCount.setText(totalItems + " 份文档");
+                    tvCount.setAlpha(0.35f); // 文件夹计数显示较淡
+                }
+                else if (itemText.startsWith("📄 ")) {
+                    // --- 文件逻辑：显示题目数量 ---
+                    String fileName = itemText.replace("📄 ", "");
+                    String fullPath = currentExplorerPath + fileName;
+
+                    // 核心优化：即便在云端模式，如果本地已下载，也显示题目数量
+                    if (repository.isFileDownloaded(fullPath)) {
+                        int count = repository.getLocalFileLineCount(fullPath);
+                        tvCount.setText(count + " 题");
+                        tvCount.setAlpha(0.65f); // 题目数量显示较清晰
+                    } else {
+                        // 尚未下载的云端文件
+                        tvCount.setText("云端");
+                        tvCount.setAlpha(0.4f);
+                    }
+                }
+                else {
+                    tvCount.setVisibility(View.GONE);
+                }
+
+                return convertView;
+            }
+
+        };
+
         listView.setAdapter(adapter);
 
         builder.setView(layout);
         builder.setNegativeButton("关闭", null);
+
+        if (isExploringLocal) {
+            builder.setNeutralButton("清空本地", (d, w) -> {
+                new AlertDialog.Builder(activity)
+                        .setTitle("确认清空？")
+                        .setMessage("这将删除所有已下载的题库文件。")
+                        .setPositiveButton("确定", (d2, w2) -> {
+                            deleteRecursive(new java.io.File(activity.getFilesDir(), "data"));
+                            fetchLocalFilesAndShowDialog();
+                        })
+                        .setNegativeButton("取消", null).show();
+            });
+        }
+
         AlertDialog dialog = builder.create();
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
             String itemText = adapter.getItem(position);
             if (itemText == null) return;
 
-            // 返回上一级
             if (itemText.equals(".. (返回上一级)")) {
-                if (currentExplorerPath.endsWith("/")) {
-                    String temp = currentExplorerPath.substring(0, currentExplorerPath.length() - 1);
-                    int lastSlash = temp.lastIndexOf('/');
-                    if (lastSlash != -1) {
-                        currentExplorerPath = temp.substring(0, lastSlash + 1);
-                        updateExplorerView(tvPath, adapter);
-                    }
+                String temp = currentExplorerPath.substring(0, currentExplorerPath.length() - 1);
+                int lastSlash = temp.lastIndexOf('/');
+                if (lastSlash != -1) {
+                    currentExplorerPath = temp.substring(0, lastSlash + 1);
+                    updateExplorerView(tvPath, adapter);
                 }
                 return;
             }
 
-            // 进入文件夹
             if (itemText.startsWith("📁 ")) {
-                String folderName = itemText.replace("📁 ", "");
-                currentExplorerPath += folderName + "/";
+                currentExplorerPath += itemText.replace("📁 ", "") + "/";
                 updateExplorerView(tvPath, adapter);
                 return;
             }
 
-            // 点击文件：区分本地和在线
             if (itemText.startsWith("📄 ")) {
                 String fileName = itemText.replace("📄 ", "");
                 String fullPath = currentExplorerPath + fileName;
                 dialog.dismiss();
-
-                if (isExploringLocal) {
-                    // 如果是本地模式，直接调用加载方法
-                    loadLocalProblemSet(fullPath);
-                } else {
-                    // 如果是在线模式，才调用下载方法
-                    startDownloadWithProgress(fullPath, fileName);
-                }
+                if (isExploringLocal) loadLocalProblemSet(fullPath);
+                else startDownloadWithProgress(fullPath, fileName);
             }
         });
 
         dialog.show();
         updateExplorerView(tvPath, adapter);
     }
+
+
+    // 辅助递归删除（放在 SidebarLogic 类末尾即可）
+    private void deleteRecursive(java.io.File fileOrDirectory) {
+        if (fileOrDirectory.isDirectory()) {
+            for (java.io.File child : fileOrDirectory.listFiles()) deleteRecursive(child);
+        }
+        fileOrDirectory.delete();
+    }
+
 
     private void updateExplorerView(TextView tvPath, ArrayAdapter<String> adapter) {
         tvPath.setText("当前位置: " + (isExploringLocal ? "本地/" : "远程/") + currentExplorerPath);
@@ -459,20 +710,23 @@ public class SidebarLogic {
 
         repository.downloadFileContent(path, gameModeSettings, new ProblemRepository.FileDownloadCallback() {
             @Override
-            public void onProgress(int percent) {
+            public void onProgress(int percent, long currentBytes, long totalBytes) {
                 if (isSingleDownloadCancelled) return;
                 new Handler(Looper.getMainLooper()).post(() -> {
                     if (percent == -1) {
-                        // 如果长度未知，让进度条进入动画模式（走马灯）
                         progressBar.setIndeterminate(true);
-                        tvPercent.setText("正在下载...");
+                        // 长度未知时，仅显示已下载大小
+                        tvPercent.setText("正在下载: " + formatFileSize(currentBytes));
                     } else {
                         progressBar.setIndeterminate(false);
                         progressBar.setProgress(percent);
-                        tvPercent.setText(percent + "%");
+                        // [核心修改]：显示 "12 KB / 100 KB (12%)"
+                        String sizeInfo = formatFileSize(currentBytes) + " / " + formatFileSize(totalBytes);
+                        tvPercent.setText(sizeInfo + " (" + percent + "%)");
                     }
                 });
             }
+
 
             @Override
             public void onSuccess(List<Problem> problems, String fileName) {

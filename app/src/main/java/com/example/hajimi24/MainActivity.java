@@ -12,6 +12,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.content.SharedPreferences;
 import androidx.appcompat.app.AppCompatDelegate;
+import androidx.core.content.res.ResourcesCompat;
 
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -36,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnUndo, btnReset, btnRedo, btnMenu;
     private Button btnTry, btnHintStruct, btnAnswer, btnShare, btnSkip;
     private GameManager gameManager;
+    private Toast mCurrentToast;
     private ProblemRepository repository;
     private GameTimer gameTimer;
     private SidebarLogic sidebarLogic;
@@ -44,6 +46,70 @@ public class MainActivity extends AppCompatActivity {
     private String selectedOperator = null;
     private String currentFileName = "随机休闲(4数)";
     private String lastPlainTextSolution = "";
+    // 在 MainActivity.java 中
+
+    public void applyTextWeight(boolean isBold) {
+        // [核心修复]：每次都从资源加载原始字体族，确保 NORMAL 状态能准确还原
+        android.graphics.Typeface tf = ResourcesCompat.getFont(this, R.font.app_default_font);
+        int style = isBold ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL;
+
+        // 1. 设置五个数字卡片按钮
+        for (Button b : cardButtons) {
+            if (b != null) b.setTypeface(tf, style);
+        }
+
+        // 2. 设置加减乘除运算符按钮
+        if (btnAdd != null) btnAdd.setTypeface(tf, style);
+        if (btnSub != null) btnSub.setTypeface(tf, style);
+        if (btnMul != null) btnMul.setTypeface(tf, style);
+        if (btnDiv != null) btnDiv.setTypeface(tf, style);
+
+        // 3. 提示区域
+        if (tvMessage != null) tvMessage.setTypeface(tf, style);
+    }
+
+    private void applySavedLayoutMargin() {
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        int marginTopDp = prefs.getInt("grid_margin_top", 40);
+        int messageBottomDp = prefs.getInt("message_margin_bottom", 0);
+
+        findViewById(R.id.grid_cards).post(() -> {
+            float density = getResources().getDisplayMetrics().density;
+
+            // A. 卡片顶部间距
+            View gridCards = findViewById(R.id.grid_cards);
+            if (gridCards != null) {
+                androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) gridCards.getLayoutParams();
+                lp.topMargin = (int) (marginTopDp * density);
+                gridCards.setLayoutParams(lp);
+            }
+
+            // B. 信息区 (tvMessage) 偏移
+            if (tvMessage != null) {
+                androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMessage.getLayoutParams();
+                lp.bottomMargin = (int) (messageBottomDp * density);
+                tvMessage.setLayoutParams(lp);
+                // 确保背景透明，不影响游戏提示
+                tvMessage.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            }
+        });
+    }
+
+    // 3. 新增：带自定义高度的提示方法 (用于替换原来的 Toast)
+    public void showCustomToast(String text) {
+        if (text == null || text.isEmpty()) return;
+
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        int yOffsetDp = prefs.getInt("toast_y_offset", 64);
+        float density = getResources().getDisplayMetrics().density;
+
+        if (mCurrentToast != null) mCurrentToast.cancel();
+
+        mCurrentToast = Toast.makeText(this, text, Toast.LENGTH_SHORT);
+        mCurrentToast.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL,
+                0, (int)(yOffsetDp * density));
+        mCurrentToast.show();
+    }
     private void showThemeSelectionDialog() {
         final String[] themes = {"跟随系统", "日间模式", "夜间模式"};
 
@@ -97,6 +163,8 @@ public class MainActivity extends AppCompatActivity {
         initListeners();
         gameStartTime = System.currentTimeMillis();
         switchToRandomMode(4);
+        applySavedLayoutMargin();
+        applyTextWeight(prefs.getBoolean("use_bold_text", false));
     }
     private void updateMenuButtonText(String rawName) {
         // 1. 去掉 .txt 后缀
@@ -135,7 +203,7 @@ public class MainActivity extends AppCompatActivity {
                 gameManager.setProblemSet(problems);
                 currentFileName = title; // 存完整路径用于刷新
                 updateMenuButtonText(title); // 内部会自动处理路径和换行
-                Toast.makeText(MainActivity.this, "加载成功", Toast.LENGTH_SHORT).show();
+                showCustomToast("加载成功!");
                 startNewGameLocal();
             }
 
@@ -183,7 +251,7 @@ public class MainActivity extends AppCompatActivity {
             currentFileName = fileName;
             updateMenuButtonText(fileName); // 使用统一样式更新
 
-            Toast.makeText(this, "加载成功", Toast.LENGTH_SHORT).show();
+            showCustomToast("加载成功!");
             startNewGameLocal();
         } catch (Exception e) { e.printStackTrace(); switchToRandomMode(4); }
     }
@@ -260,14 +328,14 @@ public class MainActivity extends AppCompatActivity {
                     if (gameManager.performCalculation(selectedFirstIndex, index, selectedOperator)) {
                         resetSelection(); refreshUI(); selectCard(index); checkWin();
                     }
-                } catch (ArithmeticException e) { Toast.makeText(this, "除数不能为0", Toast.LENGTH_SHORT).show(); }
+                } catch (ArithmeticException e) { showCustomToast("除数不能为 0!"); }
             }
         }
     }
 
     private void checkWin() {
         if (gameManager != null && gameManager.checkWin()) {
-            Toast.makeText(this, "成功！", Toast.LENGTH_SHORT).show();
+            showCustomToast("计算正确!");
             gameManager.solvedCount++;
             if (gameTimer != null) gameTimer.stop();
             updateScoreBoard();
@@ -335,7 +403,7 @@ public class MainActivity extends AppCompatActivity {
                 ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
                 clipboard.setPrimaryClip(clip);
-                Toast.makeText(MainActivity.this, "已复制到剪贴板", Toast.LENGTH_SHORT).show();
+                showCustomToast("已复制到剪贴板");
                 return true;
             });
         }
@@ -366,14 +434,36 @@ public class MainActivity extends AppCompatActivity {
         if (btnDiv != null) btnDiv.setOnClickListener(opListener);
 
         // 撤销、重做、重置、跳过
-        if (btnUndo != null) btnUndo.setOnClickListener(v -> { if(gameManager.undo()) { refreshUI(); resetSelection(); } });
-        if (btnRedo != null) btnRedo.setOnClickListener(v -> { if(gameManager.redo()) { refreshUI(); resetSelection(); } });
+        if (btnUndo != null) btnUndo.setOnClickListener(v -> {
+            if(gameManager.undo()) {
+                refreshUI();
+                resetSelection();
+                // [新增逻辑]：若界面显示“无解”，撤销操作成功后文字消失
+                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
+                    tvMessage.setText("");
+                    lastPlainTextSolution = "";
+                }
+            }
+        });
+        if (btnRedo != null) btnRedo.setOnClickListener(v -> {
+            if(gameManager.redo()) {
+                refreshUI();
+                resetSelection();
+                // [新增逻辑]：若界面显示“无解”，重做操作成功后文字消失
+                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
+                    tvMessage.setText("");
+                    lastPlainTextSolution = "";
+                }
+            }
+        });
         if (btnReset != null) btnReset.setOnClickListener(v -> {
             if (gameManager != null) gameManager.resetCurrentLevel();
             refreshUI();
             resetSelection();
+            // [逻辑确认]：重置按钮会清空所有消息（包括“无解”），确保重置时消失
             if (tvMessage != null) tvMessage.setText("");
-            Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show();
+            lastPlainTextSolution = "";
+            showCustomToast("已重置");
         });
         if (btnSkip != null) btnSkip.setOnClickListener(v -> startNewGameLocal());
 
@@ -511,9 +601,9 @@ public class MainActivity extends AppCompatActivity {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     ClipData clip = ClipData.newPlainText("Hajimi24 Question", textToCopy);
                     clipboard.setPrimaryClip(clip);
-                    Toast.makeText(MainActivity.this, "题目已复制到剪贴板", Toast.LENGTH_SHORT).show();
+                    showCustomToast("题目已复制到剪贴板"); // 修改此处
                 } else {
-                    Toast.makeText(MainActivity.this, "当前没有可分享的题目", Toast.LENGTH_SHORT).show();
+                    showCustomToast("当前没有可分享的题目"); // 修改此处
                 }
             });
         }

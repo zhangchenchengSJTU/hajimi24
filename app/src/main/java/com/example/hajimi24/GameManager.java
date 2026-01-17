@@ -197,9 +197,9 @@ public class GameManager {
 
         // 分进制显示目标
         if (currentProblem != null && currentProblem.radix != null) {
-            sb.append(" 如何计算 ").append(currentProblem.radix).append(" 进制下的 24?");
+            sb.append(" 如何计算 ").append(currentProblem.radix).append(" 进制下的二十四点?");
         } else {
-            sb.append(" 如何计算 24 点?");
+            sb.append(" 如何计算二十四点?");
         }
 
         return sb.toString();
