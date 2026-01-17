@@ -149,17 +149,35 @@ public class SidebarLogic {
         final TextView tv2 = new TextView(activity);
         tv2.setText("\n信息区底部偏移: " + msgBottom + " dp");
         layout.addView(tv2);
+
         android.widget.SeekBar sb2 = new android.widget.SeekBar(activity);
-        sb2.setMax(400); sb2.setProgress(msgBottom + 200); // 映射 -200 到 200
+        sb2.setMax(400); sb2.setProgress(msgBottom + 200);
         sb2.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
                 int val = p - 200;
                 tv2.setText("\n信息区底部偏移: " + val + " dp");
+
                 View tvMsg = activity.findViewById(R.id.tv_message_area);
+                View wvMath = activity.findViewById(R.id.wv_math_message);
+
+                // 1. 核心修改：只要开始操作滑块，强制让 LaTeX 区域消失
+                if (wvMath != null) {
+                    wvMath.setVisibility(View.GONE);
+                    // 同步更新 WebView 的布局参数，确保下次显示时位置也是正确的
+                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpW =
+                            (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) wvMath.getLayoutParams();
+                    lpW.bottomMargin = (int) (val * density);
+                    wvMath.setLayoutParams(lpW);
+                }
+
+                // 2. 更新文本框的位置并显示预览文字
                 if (tvMsg != null) {
-                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
-                    lp.bottomMargin = (int) (val * density);
-                    tvMsg.setLayoutParams(lp);
+                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpT =
+                            (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
+                    lpT.bottomMargin = (int) (val * density);
+                    tvMsg.setLayoutParams(lpT);
+
+                    // 非此即彼：隐藏 WebView 的同时，显示文本框作为位置参考
                     tvMsg.setVisibility(View.VISIBLE);
                     ((TextView)tvMsg).setText("预览：底部信息区位置");
                 }
@@ -226,6 +244,18 @@ public class SidebarLogic {
                 }
                 return false; // 允许正常滑动 SeekBar
             });
+            // 使用 LaTeX
+            androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
+            swLatex.setText("启用 LaTeX 高质量渲染");
+            swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
+            swLatex.setOnCheckedChangeListener((v, c) -> {
+                prefs.edit().putBoolean("use_latex_mode", c).apply();
+                // 强制清理 MainActivity 的显示状态，让用户重新点击时刷新渲染器
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).updateDisplay("", null, false);
+                }
+            });
+            layout.addView(swLatex);
         }
     }
 
@@ -988,6 +1018,7 @@ public class SidebarLogic {
 
 
     // [Restored] showCalculatorDialog
+    // SidebarLogic.java 中的计算器对话框完整实现
     private void showCalculatorDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("24点计算器");
@@ -997,62 +1028,81 @@ public class SidebarLogic {
         int padding = 40;
         layout.setPadding(padding, padding, padding, padding);
 
+        // 输入框
         final EditText etInput = new EditText(activity);
         etInput.setHint("请输入数字 (例如 3 3 8 8)");
         etInput.setMinLines(2);
         layout.addView(etInput);
 
-        // --- 模式选择区域 ---
+        // --- 模式选择 (常规/同余/进制) ---
         LinearLayout modeLayout = new LinearLayout(activity);
         modeLayout.setOrientation(LinearLayout.HORIZONTAL);
         modeLayout.setPadding(0, 20, 0, 20);
         modeLayout.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
-        // 1. 模式选择 Spinner
         Spinner spinnerMode = new Spinner(activity);
         String[] modes = {"常规模式", "同余模式", "进制模式"};
         ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, modes);
         modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerMode.setAdapter(modeAdapter);
         modeLayout.addView(spinnerMode);
-
-        // 2. 细节选择 Spinner (用于选择 Mod 数或 Radix 进制)
-        Spinner spinnerDetail = new Spinner(activity);
-        spinnerDetail.setVisibility(View.GONE);
-        modeLayout.addView(spinnerDetail);
-
         layout.addView(modeLayout);
 
-        // 数据源定义
-        Integer[] radixValues = {5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-        ArrayAdapter<Integer> modAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, MOD_PRIMES);
-        ArrayAdapter<Integer> radixAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, radixValues);
-        modAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        radixAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        // --- 滑块调节区域 (用于选择 Mod 数或 进制) ---
+        LinearLayout sliderContainer = new LinearLayout(activity);
+        sliderContainer.setOrientation(LinearLayout.VERTICAL);
+        sliderContainer.setVisibility(View.GONE); // 初始隐藏
+        sliderContainer.setPadding(0, 20, 0, 20);
 
-        // 切换模式时的交互逻辑
+        final TextView tvSliderValue = new TextView(activity);
+        tvSliderValue.setTextSize(14);
+        tvSliderValue.setPadding(10, 0, 0, 5);
+
+        final android.widget.SeekBar seekBar = new android.widget.SeekBar(activity);
+
+        sliderContainer.addView(tvSliderValue);
+        sliderContainer.addView(seekBar);
+        layout.addView(sliderContainer);
+
+        // 模式切换监听：调整滑块的范围和文案
         spinnerMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (position == 0) { // 常规
-                    spinnerDetail.setVisibility(View.GONE);
+                    sliderContainer.setVisibility(View.GONE);
                     etInput.setHint("请输入数字 (例如 3 3 8 8)");
                 } else if (position == 1) { // 同余
-                    spinnerDetail.setVisibility(View.VISIBLE);
-                    spinnerDetail.setAdapter(modAdapter);
-                    etInput.setHint("Mod n 模式下, 请输入 0 到 n-1 之间的整数");
+                    sliderContainer.setVisibility(View.VISIBLE);
+                    seekBar.setMax(MOD_PRIMES.length - 1);
+                    seekBar.setProgress(0);
+                    tvSliderValue.setText("模数 (n): " + MOD_PRIMES[0]);
+                    etInput.setHint("请输入 0 到 n-1 之间的整数");
                 } else { // 进制
-                    spinnerDetail.setVisibility(View.VISIBLE);
-                    spinnerDetail.setAdapter(radixAdapter);
-                    spinnerDetail.setSelection(5); // 默认 10 进制 (索引5)
+                    sliderContainer.setVisibility(View.VISIBLE);
+                    seekBar.setMax(11); // 5-16进制，共12个档位
+                    seekBar.setProgress(5); // 默认 10 进制
+                    tvSliderValue.setText("显示进制: 10");
                     etInput.setHint("请输入对应进制的数字 (支持 A-F)");
                 }
             }
             @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
 
-        // ------------------
+        // 滑块滑动实时更新文字
+        seekBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                if (spinnerMode.getSelectedItemPosition() == 1) {
+                    tvSliderValue.setText("模数 (n): " + MOD_PRIMES[p]);
+                } else {
+                    tvSliderValue.setText("显示进制: " + (p + 5));
+                }
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {}
+        });
 
+        // --- 按钮和结果显示 (保持不变) ---
         LinearLayout buttonLayout = new LinearLayout(activity);
         buttonLayout.setOrientation(LinearLayout.HORIZONTAL);
         Button btnCalcAll = new Button(activity); btnCalcAll.setText("计算所有解");
@@ -1064,7 +1114,7 @@ public class SidebarLogic {
         layout.addView(buttonLayout);
 
         ScrollView scrollView = new ScrollView(activity);
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 500);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 500);
         scrollParams.topMargin = 20;
         scrollView.setLayoutParams(scrollParams);
         final TextView tvResult = new TextView(activity);
@@ -1075,21 +1125,15 @@ public class SidebarLogic {
 
         View.OnClickListener calcListener = v -> {
             int modeIdx = spinnerMode.getSelectedItemPosition();
-            Integer modulus = null;
-            int radix = 10;
-            int target = 24;
-
-            if (modeIdx == 1) { // 同余
-                modulus = (Integer) spinnerDetail.getSelectedItem();
-            } else if (modeIdx == 2) { // 进制
-                radix = (Integer) spinnerDetail.getSelectedItem();
-                target = 2 * radix + 4; // 计算进制下的目标值 (如 12进制下是 28)
+            Integer modulus = null; int radix = 10; int target = 24;
+            if (modeIdx == 1) {
+                modulus = MOD_PRIMES[seekBar.getProgress()];
+            } else if (modeIdx == 2) {
+                radix = seekBar.getProgress() + 5;
+                target = 2 * radix + 4;
             }
-
-            boolean limit10 = (v == btnCalc10);
-            performCalculation(etInput.getText().toString(), limit10, tvResult, modulus, radix, target);
+            performCalculation(etInput.getText().toString(), (v == btnCalc10), tvResult, modulus, radix, target);
         };
-
         btnCalcAll.setOnClickListener(calcListener);
         btnCalc10.setOnClickListener(calcListener);
 
@@ -1097,6 +1141,8 @@ public class SidebarLogic {
         builder.setNegativeButton("关闭", null);
         builder.create().show();
     }
+
+
 
     private void performCalculation(String input, boolean limit10, TextView tvResult, Integer modulus, int radix, int target) {
         try {

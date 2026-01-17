@@ -13,6 +13,11 @@ import android.widget.Toast;
 import android.content.SharedPreferences;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.content.res.ResourcesCompat;
+import android.webkit.WebView;
+import android.webkit.WebSettings;
+import android.database.DatabaseUtils;
+import android.webkit.WebViewClient;
+
 
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -28,7 +33,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
     private Problem mCurrentProblem;
-
+    private String lastShownType = ""; // "", "struct", "answer"
     private String currentLoadedFile = null;
     private DrawerLayout drawerLayout;
     private TextView tvScore, tvTimer, tvAvgTime, tvMessage;
@@ -93,6 +98,50 @@ public class MainActivity extends AppCompatActivity {
                 tvMessage.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             }
         });
+    }
+    private void renderLatexInWebView(WebView wv, String content) {
+        WebSettings settings = wv.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setAllowFileAccess(true);
+
+        // 1. 消除滞留：加载新内容前先彻底隐藏
+        wv.setVisibility(View.INVISIBLE);
+
+        // 2. 检测复杂度（\cfrac 出现次数）：若大于等于 2 个分式，则调小字号
+        int cfracCount = (content.length() - content.replace("cfrac", "").length()) / 5;
+        String fontSize = (cfracCount >= 2) ? "1.1em" : "1.4em";
+
+        wv.setBackgroundColor(0);
+        String escaped = content.replace("\\", "\\\\").replace("'", "\\'");
+
+        String html = "<!DOCTYPE html><html><head>" +
+                "<meta charset='UTF-8'>" +
+                "<link rel='stylesheet' href='katex.min.css'>" +
+                "<script src='katex.min.js'></script>" +
+                "<style>" +
+                "  body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
+                "         height: 100vh; background: transparent; overflow: hidden; " +
+                "         color: #000000; font-weight: bold; }" + // 纯黑
+                "  #math { font-size: " + fontSize + "; text-align: center; white-space: nowrap; }" +
+                "</style>" +
+                "</head><body><div id='math'></div><script>" +
+                "  window.onload = function() {" +
+                "    try {" +
+                "      katex.render('" + escaped + "', document.getElementById('math'), {throwOnError: false});" +
+                "    } catch (e) { document.getElementById('math').textContent = ''; }" +
+                "  };" +
+                "</script></body></html>";
+
+        // 3. 渲染完成后再显示，解决闪烁和内容滞留
+        wv.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                // 延迟一小会儿显示，确保渲染已生效
+                wv.postDelayed(() -> wv.setVisibility(View.VISIBLE), 50);
+            }
+        });
+
+        wv.loadDataWithBaseURL("file:///android_asset/katex/", html, "text/html", "UTF-8", null);
     }
 
     // 3. 新增：带自定义高度的提示方法 (用于替换原来的 Toast)
@@ -271,7 +320,9 @@ public class MainActivity extends AppCompatActivity {
         if (gameTimer != null) gameTimer.start();
         resetSelection();
         refreshUI();
-        if (tvMessage != null) tvMessage.setText("");
+        // 核心修改：使用 updateDisplay 清理两个显示组件，并重置状态
+        updateDisplay("", null, false);
+        lastShownType = "";
         lastPlainTextSolution = "";
     }
 
@@ -538,57 +589,35 @@ public class MainActivity extends AppCompatActivity {
         // 结构提示功能
 // 结构提示功能
         if (btnHintStruct != null) btnHintStruct.setOnClickListener(v -> {
-            // [核心修复]：直接判断前缀。如果当前已经显示“结构”，则点击后直接消失并返回。
-            if (tvMessage != null && tvMessage.getText().toString().startsWith("结构: ")) {
-                tvMessage.setText("");
-                lastPlainTextSolution = "";
+            String sol = getFreshSolution();
+            if (sol == null) {
+                updateDisplay("无解", null, false);
                 return;
             }
-
-            String sol = getFreshSolution();
-            if (sol != null) {
-                if (tvMessage != null) {
-                    tvMessage.setText("结构: ");
-                    tvMessage.append(ExpressionHelper.formatStructure(sol, getCurrentNumbers()));
-                    lastPlainTextSolution = ExpressionHelper.getStructureAsPlainText(sol, getCurrentNumbers());
-                }
+            // 如果已经在显示结构，则隐藏
+            if ("struct".equals(lastShownType)) {
+                updateDisplay("", null, false);
+                lastShownType = "";
             } else {
-                // 无解状态切换逻辑：点一下出现“无解”，再点一下消失
-                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
-                    tvMessage.setText("");
-                    lastPlainTextSolution = "";
-                } else if (tvMessage != null) {
-                    tvMessage.setText("无解");
-                    lastPlainTextSolution = "无解";
-                }
+                updateDisplay("结构: ", sol, true);
+                lastShownType = "struct";
             }
         });
 
 // 完整答案功能
         if (btnAnswer != null) btnAnswer.setOnClickListener(v -> {
-            // [核心修复]：直接判断前缀。如果当前已经显示“答案”，则点击后直接消失并返回。
-            if (tvMessage != null && tvMessage.getText().toString().startsWith("答案: ")) {
-                tvMessage.setText("");
-                lastPlainTextSolution = "";
+            String sol = getFreshSolution();
+            if (sol == null) {
+                updateDisplay("无解", null, false);
                 return;
             }
-
-            String sol = getFreshSolution();
-            if (sol != null) {
-                if (tvMessage != null) {
-                    tvMessage.setText("答案: ");
-                    tvMessage.append(ExpressionHelper.formatAnswer(sol, getCurrentNumbers()));
-                    lastPlainTextSolution = ExpressionHelper.getAnswerAsPlainText(sol, getCurrentNumbers());
-                }
+            // 如果已经在显示答案，则隐藏
+            if ("answer".equals(lastShownType)) {
+                updateDisplay("", null, false);
+                lastShownType = "";
             } else {
-                // 无解状态切换逻辑：点一下出现“无解”，再点一下消失
-                if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
-                    tvMessage.setText("");
-                    lastPlainTextSolution = "";
-                } else if (tvMessage != null) {
-                    tvMessage.setText("无解");
-                    lastPlainTextSolution = "无解";
-                }
+                updateDisplay("答案: ", sol, false);
+                lastShownType = "answer";
             }
         });
 
@@ -613,5 +642,34 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetOpColors() {
         if (btnAdd != null) btnAdd.setBackgroundColor(Color.LTGRAY); if (btnSub != null) btnSub.setBackgroundColor(Color.LTGRAY); if (btnMul != null) btnMul.setBackgroundColor(Color.LTGRAY); if (btnDiv != null) btnDiv.setBackgroundColor(Color.LTGRAY);
+    }
+    public void updateDisplay(String prefix, String rawSolution, boolean isStructure) {
+        boolean useLatex = getSharedPreferences("AppConfig", MODE_PRIVATE).getBoolean("use_latex_mode", false);
+        WebView wvMath = findViewById(R.id.wv_math_message);
+
+        // 清空显示或无解情况：强制回到文本框，隐藏 WebView
+        if (prefix.isEmpty() || "无解".equals(prefix)) {
+            wvMath.setVisibility(View.GONE);
+            tvMessage.setVisibility(View.VISIBLE);
+            tvMessage.setText(prefix);
+            return;
+        }
+
+        if (useLatex) {
+            // LaTeX 模式：隐藏文本框，WebView 进入加载
+            tvMessage.setVisibility(View.GONE);
+            String latexBody = ExpressionHelper.getAsLatex(rawSolution, getCurrentNumbers(), isStructure);
+            renderLatexInWebView(wvMath, latexBody);
+        } else {
+            // 普通模式：隐藏 WebView，显示文本框
+            wvMath.setVisibility(View.GONE);
+            tvMessage.setVisibility(View.VISIBLE);
+            tvMessage.setText(prefix);
+            if (isStructure) {
+                tvMessage.append(ExpressionHelper.formatStructure(rawSolution, getCurrentNumbers()));
+            } else {
+                tvMessage.append(ExpressionHelper.formatAnswer(rawSolution, getCurrentNumbers()));
+            }
+        }
     }
 }
