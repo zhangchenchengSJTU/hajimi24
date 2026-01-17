@@ -19,11 +19,24 @@ public class SolutionNormalizer {
 
         for (String sol : solutions) {
             try {
-                // 1. 解析并生成指纹
-                Node root = parse(sol);
-                String signature = root.getSignature();
+                // --- 核心修复：剥离后缀 ---
+                String mathPart = sol;
+                String suffix = "";
 
-                // 2. 择优保留：如果指纹已存在，保留较短的那个；如果长度一样，保留字典序较小的
+                // 正则匹配末尾的 mod n 或 base n (支持连带情况)
+                java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\s+(mod|base)\\s+\\d+.*$");
+                java.util.regex.Matcher m = p.matcher(sol);
+                if (m.find()) {
+                    suffix = m.group(); // 提取后缀如 " mod 73"
+                    mathPart = sol.substring(0, m.start()).trim(); // 提取前面的数学式
+                }
+
+                // 1. 对数学部分生成指纹
+                Node root = parse(mathPart);
+                // 关键：指纹必须包含后缀内容，否则不同模数下的相同算式会被误删
+                String signature = root.getSignature() + "|" + suffix.trim();
+
+                // 2. 择优保留：如果指纹已存在，保留较短/字典序较小的
                 if (map.containsKey(signature)) {
                     String existing = map.get(signature);
                     if (sol.length() < existing.length() || (sol.length() == existing.length() && sol.compareTo(existing) < 0)) {
@@ -33,7 +46,7 @@ public class SolutionNormalizer {
                     map.put(signature, sol);
                 }
             } catch (Exception e) {
-                // 如果解析出错（极其罕见），则不去重，直接保留
+                // 解析出错则保留原样
                 if (!result.contains(sol)) result.add(sol);
             }
         }

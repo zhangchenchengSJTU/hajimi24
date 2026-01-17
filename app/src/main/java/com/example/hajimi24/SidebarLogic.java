@@ -496,29 +496,112 @@ public class SidebarLogic {
 
         SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
 
-        // 使用标准的 SwitchCompat，文字保持固定
-        androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
+        // 1. 总开关
+        SwitchCompat swLatex = new SwitchCompat(activity);
         swLatex.setText("启用 LaTeX 高质量渲染");
         swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
-        swLatex.setOnCheckedChangeListener((v, c) -> {
-            prefs.edit().putBoolean("use_latex_mode", c).apply();
-            if (activity instanceof MainActivity) {
-                // 立即生效：清空当前显示
-                ((MainActivity) activity).updateDisplay("", null, false);
-            }
-        });
         layout.addView(swLatex);
 
-        TextView tvHint = new TextView(activity);
-        tvHint.setText("\n开启后将使用 MathJax 引擎渲染公式。\n已适配日间(黑)/夜间(淡黄)配色。");
-        tvHint.setTextSize(12);
-        tvHint.setAlpha(0.5f);
-        layout.addView(tvHint);
+        // --- 2. 乘法模式选择 ---
+        final TextView tvMulTitle = new TextView(activity);
+        tvMulTitle.setText("\n乘法符号显示模式:");
+        tvMulTitle.setPadding(10, 10, 0, 10);
+        layout.addView(tvMulTitle);
+
+        final android.widget.RadioGroup rgMul = new android.widget.RadioGroup(activity);
+        rgMul.setPadding(40, 0, 0, 0);
+        String[] mulOptions = {"乘法写作 ×", "乘法写作 •", "乘法写作 • (遇括号省略)"};
+        int currentMulMode = prefs.getInt("latex_mul_mode", 1);
+        for (int i = 0; i < 3; i++) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
+            rb.setId(i); // ID: 0, 1, 2
+            rb.setText(mulOptions[i]);
+            rgMul.addView(rb);
+            if (currentMulMode == i) rb.setChecked(true);
+        }
+        layout.addView(rgMul);
+
+        // --- 3. 除法模式选择 ---
+        final TextView tvDivTitle = new TextView(activity);
+        tvDivTitle.setText("\n除法符号显示模式:");
+        tvDivTitle.setPadding(10, 10, 0, 10);
+        layout.addView(tvDivTitle);
+
+        final android.widget.RadioGroup rgDiv = new android.widget.RadioGroup(activity);
+        rgDiv.setPadding(40, 0, 0, 0);
+        String[] divOptions = {"仅除法运算写作 分数线", "除法与分数均写作 分数线", "除法运算写作 ÷"};
+        int currentDivMode = prefs.getInt("latex_div_mode", 0);
+        for (int i = 0; i < 3; i++) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
+            rb.setId(i + 10); // ID: 10, 11, 12
+            rb.setText(divOptions[i]);
+            rgDiv.addView(rb);
+            if (currentDivMode == i) rb.setChecked(true);
+        }
+        layout.addView(rgDiv);
+
+        // --- 4. 长按 LaTeX 公式行为 ---
+        final TextView tvLongPressTitle = new TextView(activity);
+        tvLongPressTitle.setText("\n长按 LaTeX 公式行为:");
+        tvLongPressTitle.setPadding(10, 10, 0, 10);
+        layout.addView(tvLongPressTitle);
+
+        final android.widget.RadioGroup rgLongPress = new android.widget.RadioGroup(activity);
+        rgLongPress.setPadding(40, 0, 0, 0);
+        String[] lpOptions = {"复制 LaTeX 代码", "复制计算式文本", "保持原生 MathJax 行为"};
+        int currentLPMode = prefs.getInt("latex_long_press_mode", 0);
+        for (int i = 0; i < 3; i++) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
+            rb.setId(i + 20); // ID: 20, 21, 22
+            rb.setText(lpOptions[i]);
+            rgLongPress.addView(rb);
+            if (currentLPMode == i) rb.setChecked(true);
+        }
+        layout.addView(rgLongPress);
+
+        // --- 联动逻辑控制：仅定义一次 ---
+        final Runnable updateVisibility = () -> {
+            boolean enabled = swLatex.isChecked();
+            float alpha = enabled ? 1.0f : 0.3f;
+
+            tvMulTitle.setAlpha(alpha);
+            tvDivTitle.setAlpha(alpha);
+            tvLongPressTitle.setAlpha(alpha);
+
+            for(int i=0; i<rgMul.getChildCount(); i++) rgMul.getChildAt(i).setEnabled(enabled);
+            for(int i=0; i<rgDiv.getChildCount(); i++) rgDiv.getChildAt(i).setEnabled(enabled);
+            for(int i=0; i<rgLongPress.getChildCount(); i++) rgLongPress.getChildAt(i).setEnabled(enabled);
+        };
+
+        // 监听器绑定
+        swLatex.setOnCheckedChangeListener((v, c) -> {
+            prefs.edit().putBoolean("use_latex_mode", c).apply();
+            updateVisibility.run();
+            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+        });
+
+        rgMul.setOnCheckedChangeListener((g, id) -> {
+            prefs.edit().putInt("latex_mul_mode", id).apply();
+            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+        });
+
+        rgDiv.setOnCheckedChangeListener((g, id) -> {
+            prefs.edit().putInt("latex_div_mode", id - 10).apply();
+            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+        });
+
+        rgLongPress.setOnCheckedChangeListener((g, id) -> {
+            prefs.edit().putInt("latex_long_press_mode", id - 20).apply();
+        });
+
+        updateVisibility.run(); // 初始化
 
         builder.setView(layout);
         builder.setPositiveButton("确定", null);
         builder.create().show();
     }
+
+
 
 
     private void fetchRemoteFilesAndShowDialog() {

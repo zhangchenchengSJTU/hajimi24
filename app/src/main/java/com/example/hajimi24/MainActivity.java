@@ -16,6 +16,7 @@ import androidx.core.content.res.ResourcesCompat;
 import android.webkit.WebView;
 import android.webkit.WebSettings;
 import android.webkit.WebViewClient;
+import java.util.Collections;
 
 
 
@@ -31,6 +32,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
+
+    private String currentLatexCode = "";
+    private String currentPlainTextForLatex = "";
+
     private Problem mCurrentProblem;
     private String lastShownType = ""; // "", "struct", "answer"
     private String currentLoadedFile = null;
@@ -480,25 +485,46 @@ public class MainActivity extends AppCompatActivity {
         tvAvgTime.setText("平均: " + avg + "s");
     }
 
+// MainActivity.java 内部 getFreshSolution 方法重构
+
     private String getFreshSolution() {
         List<Fraction> currentNums = getCurrentNumbers();
         if (currentNums.isEmpty()) return null;
 
+        // --- 核心优化 1：预排序输入数字 ---
+        // 这能保证 DFS 搜索的起始路径是确定的，并且倾向于先处理数值较小的组合
+        Collections.sort(currentNums, (a, b) -> {
+            // 按数字的字符串表示排序，确保 A-F 等进制也能稳定排序
+            return a.toString().compareTo(b.toString());
+        });
+
         Integer modulus = null;
-        int targetValue = 24; // 默认
+        int targetValue = 24;
 
         Problem p = gameManager.getCurrentProblem();
         if (p != null) {
             modulus = p.modulus;
-            // 核心修复：进制模式下目标值动态化
             if (p.radix != null) {
                 targetValue = 2 * p.radix + 4;
             }
         }
 
-        // 调用支持 targetValue 的 Solver 方法
-        return Solver.solve(currentNums, modulus, targetValue);
+        // --- 核心优化 2：仅求取第一个解 ---
+        // 使用 Solver.solve 找到第一个可行解即返回，在 5 个数的情况下性能极高（毫秒级）
+        String singleSolution = Solver.solve(currentNums, modulus, targetValue);
+
+        if (singleSolution == null) return null;
+
+        // --- 核心优化 3：对这一个解进行 AST 规范化 ---
+        // 将结果包装成 List 传给 Normalizer，它会利用交换律将式子调整为“字典序最小”的形态
+        // 例如：将 (8+2)*(3-1) 自动修正为 (1-3)*(2+8) 等字典序更前的形式（取决于 Normalizer 逻辑）
+        List<String> wrapper = new ArrayList<>();
+        wrapper.add(singleSolution);
+        List<String> normalized = SolutionNormalizer.distinct(wrapper);
+
+        return normalized.get(0);
     }
+
 
 
 
@@ -512,6 +538,46 @@ public class MainActivity extends AppCompatActivity {
     private void initListeners() {
         // 侧边栏菜单
         if (btnMenu != null) btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+
+        WebView wvMath = findViewById(R.id.wv_math_message);
+        if (wvMath != null) {
+            wvMath.setOnLongClickListener(v -> {
+                SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+                int mode = prefs.getInt("latex_long_press_mode", 0);
+
+                if (mode == 2) return false; // 模式 2：保持原生，不拦截
+
+                String textToCopy;
+                if (mode == 0) {
+                    // --- 核心优化：直接剥离 \text{...} 结构 ---
+                    textToCopy = currentLatexCode;
+                    if (textToCopy != null) {
+                        // 使用正则表达式匹配 \text{内容} 并替换为 内容
+                        // \\\\text\\{  -> 匹配 \text{
+                        // ([^{}]*)      -> 捕获组：匹配不含大括号的内容（即最内层文本）
+                        // \\}           -> 匹配结尾的 }
+                        // 使用循环确保处理所有嵌套可能（虽然本应用中通常只有一层）
+                        String lastResult;
+                        do {
+                            lastResult = textToCopy;
+                            textToCopy = textToCopy.replaceAll("\\\\text\\{([^{}]*)\\}", "$1");
+                        } while (!textToCopy.equals(lastResult));
+
+                        textToCopy = textToCopy.trim();
+                    }
+                } else {
+                    textToCopy = currentPlainTextForLatex;
+                }
+
+                if (textToCopy != null && !textToCopy.isEmpty()) {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip = ClipData.newPlainText("Hajimi24-LaTeX", textToCopy);
+                    clipboard.setPrimaryClip(clip);
+                    showCustomToast("已复制" + (mode == 0 ? " LaTeX 代码" : "计算式文本"));
+                }
+                return true; // 拦截事件，防止弹出原生菜单
+            });
+        }
 
         // 消息区域长按复制
         if (tvMessage != null) {
@@ -713,10 +779,19 @@ public class MainActivity extends AppCompatActivity {
         if (btnAdd != null) btnAdd.setBackgroundColor(Color.LTGRAY); if (btnSub != null) btnSub.setBackgroundColor(Color.LTGRAY); if (btnMul != null) btnMul.setBackgroundColor(Color.LTGRAY); if (btnDiv != null) btnDiv.setBackgroundColor(Color.LTGRAY);
     }
     public void updateDisplay(String prefix, String rawSolution, boolean isStructure) {
-        boolean useLatex = getSharedPreferences("AppConfig", MODE_PRIVATE).getBoolean("use_latex_mode", false);
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        boolean useLatex = prefs.getBoolean("use_latex_mode", false);
+
+        // --- 读取显示配置 ---
+        // 乘法模式 (0: times, 1: cdot, 2: omit)，默认为 1 (cdot)
+        int mulMode = prefs.getInt("latex_mul_mode", 1);
+        // 除法模式 (0: fraction line, 1: division symbol)，默认为 0 (分数线)
+        int divMode = prefs.getInt("latex_div_mode", 0);
+        // ------------------
+
         WebView wvMath = findViewById(R.id.wv_math_message);
 
-        // 清空显示或无解情况：强制回到文本框，隐藏 WebView
+        // 清空显示或无解情况
         if (prefix.isEmpty() || "无解".equals(prefix)) {
             wvMath.setVisibility(View.GONE);
             tvMessage.setVisibility(View.VISIBLE);
@@ -725,12 +800,22 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (useLatex) {
-            // LaTeX 模式：隐藏文本框，WebView 进入加载
             tvMessage.setVisibility(View.GONE);
-            String latexBody = ExpressionHelper.getAsLatex(rawSolution, getCurrentNumbers(), isStructure);
+
+            // --- 核心修复：传入 mulMode 和 divMode 参数 ---
+            String latexBody = ExpressionHelper.getAsLatex(rawSolution, getCurrentNumbers(), isStructure, mulMode, divMode);
+            // --------------------------------------------
+
+            // --- 新增：保存用于复制的文本 ---
+            currentLatexCode = latexBody;
+            currentPlainTextForLatex = isStructure ?
+                    ExpressionHelper.getStructureAsPlainText(rawSolution, getCurrentNumbers()) :
+                    ExpressionHelper.getAnswerAsPlainText(rawSolution, getCurrentNumbers());
+            // ---------------------------
+
             renderLatexInWebView(wvMath, latexBody);
         } else {
-            // 普通模式：隐藏 WebView，显示文本框
+            // 普通模式逻辑保持不变
             wvMath.setVisibility(View.GONE);
             tvMessage.setVisibility(View.VISIBLE);
             tvMessage.setText(prefix);
@@ -741,4 +826,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
+
 }

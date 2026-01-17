@@ -1,3 +1,4 @@
+// ExpressionHelper.java 完整修复代码
 package com.example.hajimi24;
 
 import android.text.Html;
@@ -16,8 +17,7 @@ public class ExpressionHelper {
     private interface Node {
         String toHtml(Map<String, String> map, boolean isStructureMode);
         String toPlainText(Map<String, String> map, boolean isStructureMode);
-        // 修改：增加优先级和“是否为右操作数”的判定
-        String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight);
+        String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight, int mulMode, int divMode);
     }
 
     private static class ValueNode implements Node {
@@ -30,33 +30,32 @@ public class ExpressionHelper {
             return (val != null) ? val : "";
         }
 
-        // 辅助方法：判定当前数值是否是一个“隐式加减法表达式”（即复数）
         private int getEffectivePrec(String val) {
-            // 如果包含 '+'，或者包含非首位的 '-'（如 '3-i'），则视为加减法优先级 (1)
-            if (val.contains("+") || (val.lastIndexOf("-") > 0)) {
-                return 1;
-            }
-            return 999; // 普通数字或纯虚数（如 '-i'）视为高优先级
+            if (val.contains("+") || (val.lastIndexOf("-") > 0)) return 1;
+            return 999;
         }
 
         @Override public String toHtml(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
         @Override public String toPlainText(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
 
         @Override
-        public String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight) {
+        public String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight, int mulMode, int divMode) {
             String val = getValue(map, isStructureMode);
-            int myPrec = getEffectivePrec(val);
+            String result;
 
-            // 如果是结构模式，猫咪视为高优先级，不加括号
+            // 除法模式 1: 将数字分数转换为垂直分式
+            if (divMode == 1 && !isStructureMode && val.contains("/")) {
+                String[] p = val.split("/");
+                result = "\\cfrac{" + p[0] + "}{" + p[1] + "}";
+            } else {
+                result = "\\text{" + val + "}";
+            }
+
+            int myPrec = getEffectivePrec(val);
             if (isStructureMode) myPrec = 999;
 
-            String result = "\\text{" + val + "}";
-
-            // --- 核心：复数作为子节点时，根据优先级决定是否加 \left( \right) ---
             boolean needBrackets = false;
-            // 1. 如果父节点是乘法(2)或除法(3)，而我是加减法(1)，必须加括号
             if (parentPrec > myPrec) needBrackets = true;
-            // 2. 如果父节点是减法，且我是减法右操作数，必须加括号：a - (3-i)
             if (parentPrec == 1 && isRight && myPrec == 1) needBrackets = true;
 
             if (needBrackets) return "\\left(" + result + "\\right)";
@@ -69,85 +68,84 @@ public class ExpressionHelper {
         final Node left, right;
         OperatorNode(char op, Node right, Node left) { this.op = op; this.left = left; this.right = right; }
 
-        private int getPrec() {
+        private int getPrec(int divMode) {
             if (op == '*' || op == '×') return 2;
-            if (op == '/' ) return 3; // 内部优先级
-            return 1; // +, -
+            if (op == '/') return (divMode == 2) ? 2 : 3;
+            return 1;
         }
 
-        @Override
-        public String toPlainText(Map<String, String> map, boolean isStructureMode) {
+        @Override public String toPlainText(Map<String, String> map, boolean isStructureMode) {
             String l = left.toPlainText(map, isStructureMode);
             String r = right.toPlainText(map, isStructureMode);
-            char displayOp = (op == '*') ? '×' : (op == '/') ? '÷' : op;
-            return "(" + l + " " + displayOp + " " + r + ")";
+            char dOp = (op == '*') ? '×' : (op == '/') ? '÷' : op;
+            return "(" + l + " " + dOp + " " + r + ")";
         }
 
-        @Override
-        public String toHtml(Map<String, String> map, boolean isStructureMode) {
+        @Override public String toHtml(Map<String, String> map, boolean isStructureMode) {
             String l = left.toHtml(map, isStructureMode);
             String r = right.toHtml(map, isStructureMode);
-            char displayOp = (op == '*') ? '×' : op;
-            return "(" + l + " " + displayOp + " " + r + ")";
+            return "(" + l + " " + ((op == '*') ? '×' : op) + " " + r + ")";
         }
 
         @Override
-        public String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight) {
-            int myPrec = getPrec();
+        public String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight, int mulMode, int divMode) {
+            int myPrec = getPrec(divMode);
             String lStr, rStr;
 
-            if (op == '/') {
-                lStr = left.toLatex(map, isStructureMode, 0, false);
-                rStr = right.toLatex(map, isStructureMode, 0, true);
+            if (op == '/' && (divMode == 0 || divMode == 1)) {
+                lStr = left.toLatex(map, isStructureMode, 0, false, mulMode, divMode);
+                rStr = right.toLatex(map, isStructureMode, 0, true, mulMode, divMode);
                 return "\\cfrac{" + lStr + "}{" + rStr + "}";
-            } else {
-                lStr = left.toLatex(map, isStructureMode, myPrec, false);
-                rStr = right.toLatex(map, isStructureMode, myPrec, true);
             }
 
-            String result = (op == '*' || op == '×') ? lStr + "\\cdot " + rStr : lStr + " " + op + " " + rStr;
+            lStr = left.toLatex(map, isStructureMode, myPrec, false, mulMode, divMode);
+            rStr = right.toLatex(map, isStructureMode, myPrec, true, mulMode, divMode);
 
-            // 括号化简逻辑
+            String latexOp;
+            if (op == '*' || op == '×') {
+                if (mulMode == 0) latexOp = " \\times ";
+                else if (mulMode == 1) latexOp = " \\cdot ";
+                else {
+                    boolean leftIsBracket = lStr.endsWith("\\right)");
+                    boolean rightIsBracket = rStr.startsWith("\\left(");
+                    // 识别 \text{..} 或 \cfrac{..}{..} 为数字
+                    boolean leftIsNum = (lStr.startsWith("\\text{") || lStr.startsWith("\\cfrac{")) && lStr.endsWith("}");
+                    boolean rightIsNum = (rStr.startsWith("\\text{") || rStr.startsWith("\\cfrac{")) && rStr.endsWith("}");
+
+                    if ((leftIsBracket && rightIsBracket) || (leftIsNum && rightIsBracket) || (leftIsBracket && rightIsNum)) {
+                        latexOp = " ";
+                    } else {
+                        latexOp = " \\cdot ";
+                    }
+                }
+            } else if (op == '/') {
+                latexOp = " \\div ";
+            } else {
+                latexOp = " " + op + " ";
+            }
+
+            String result = lStr + latexOp + rStr;
             boolean needBrackets = false;
             if (parentPrec > myPrec) needBrackets = true;
-            if (parentPrec == 1 && isRight && myPrec == 1) needBrackets = true;
+            if (parentPrec == myPrec && isRight && (parentPrec == 1 || parentPrec == 2)) needBrackets = true;
 
-            // 只要有需要，就用 \left( 和 \right) 包裹。
-            // 在 displayMode 模式下，它们会感知内部 \cfrac 的高度并自动拉伸。
             if (needBrackets) return "\\left(" + result + "\\right)";
             return result;
         }
-
-        // 兼容原有的无参调用
-        public String toLatex(Map<String, String> map, boolean isStructureMode) {
-            return toLatex(map, isStructureMode, 0, false);
-        }
     }
 
-    public static String getAsLatex(String expression, List<Fraction> numbers, boolean isStructureMode) {
+    public static String getAsLatex(String expression, List<Fraction> numbers, boolean isStructureMode, int mulMode, int divMode) {
         if (expression == null) return "";
-
-        // --- 修复：补充提取后缀逻辑 ---
         String suffix = "";
         Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
         Matcher m = p.matcher(expression);
-        if (m.find()) {
-            suffix = m.group().trim();
-            expression = expression.substring(0, m.start()).trim();
-        }
-
+        if (m.find()) { suffix = m.group().trim(); expression = expression.substring(0, m.start()).trim(); }
         try {
             Map<String, String> placeholderMap = new HashMap<>();
             String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
-
-            // 初始 parentPrec 为 0
-            String latex = root.toLatex(placeholderMap, isStructureMode, 0, false);
-
-            if (!suffix.isEmpty()) {
-                // LaTeX 间距与后缀括号
-                latex += " \\quad \\left(\\text{" + suffix + "}\\right)";
-            }
+            String latex = root.toLatex(placeholderMap, isStructureMode, 0, false, mulMode, divMode);
+            if (!suffix.isEmpty()) latex += " \\quad \\left(\\text{" + suffix + "}\\right)";
             return latex;
         } catch (Exception e) { return ""; }
     }
@@ -159,113 +157,65 @@ public class ExpressionHelper {
 
     private static Spanned format(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return Html.fromHtml("", Html.FROM_HTML_MODE_LEGACY);
-
-        // --- 核心修改：提取并格式化后缀 ---
         String suffix = "";
         Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
         Matcher m = p.matcher(expression);
-        if (m.find()) {
-            suffix = m.group().trim();
-            expression = expression.substring(0, m.start()).trim();
-        }
-
+        if (m.find()) { suffix = m.group().trim(); expression = expression.substring(0, m.start()).trim(); }
         try {
             Map<String, String> placeholderMap = new HashMap<>();
             String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
             String html = root.toHtml(placeholderMap, isStructureMode);
-
-            // 将后缀加回去：增加间距并加括号
-            if (!suffix.isEmpty()) {
-                html += "&nbsp;&nbsp;&nbsp;<b>(" + suffix + ")</b>";
-            }
+            if (!suffix.isEmpty()) html += "&nbsp;&nbsp;&nbsp;<b>(" + suffix + ")</b>";
             return Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY);
-        } catch (Exception e) {
-            // 异常情况下的显示也保持一致
-            String suffixPart = suffix.isEmpty() ? "" : "&nbsp;&nbsp;&nbsp;<b>(" + suffix + ")</b>";
-            String mainPart = isStructureMode ? "解析结构失败" : expression.replace("*", "×");
-            return Html.fromHtml(mainPart + suffixPart, Html.FROM_HTML_MODE_LEGACY);
-        }
+        } catch (Exception e) { return Html.fromHtml(expression.replace("*", "×"), Html.FROM_HTML_MODE_LEGACY); }
     }
 
     private static String getPlainText(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return "";
-
         String suffix = "";
         Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
         Matcher m = p.matcher(expression);
-        if (m.find()) {
-            suffix = m.group().trim();
-            expression = expression.substring(0, m.start()).trim();
-        }
-
+        if (m.find()) { suffix = m.group().trim(); expression = expression.substring(0, m.start()).trim(); }
         try {
             Map<String, String> placeholderMap = new HashMap<>();
             String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
-            // 增加间距并加括号
             String suffixPart = suffix.isEmpty() ? "" : "   (" + suffix + ")";
             return root.toPlainText(placeholderMap, isStructureMode) + suffixPart;
-        } catch (Exception e) {
-            String suffixPart = suffix.isEmpty() ? "" : "   (" + suffix + ")";
-            return (isStructureMode ? "解析结构失败" : expression.replace("*", "×")) + suffixPart;
-        }
+        } catch (Exception e) { return expression + (suffix.isEmpty() ? "" : " " + suffix); }
     }
 
-    private static String createPlaceholders(String expression, List<Fraction> numbers, Map<String, String> map) {
-        List<String> numStrList = new ArrayList<>();
-        // 注意：由于 Fraction.toString() 已能自动按进制返回字符，这里能正确匹配 'A'
-        for (Fraction f : numbers) numStrList.add(f.toString());
-        Collections.sort(numStrList, (a, b) -> b.length() - a.length());
-
-        StringBuilder patternBuilder = new StringBuilder();
-        for (String s : numStrList) {
-            if (patternBuilder.length() > 0) patternBuilder.append("|");
-            patternBuilder.append(Pattern.quote(s));
-        }
-
-        Pattern pattern = Pattern.compile(patternBuilder.toString());
-        Matcher matcher = pattern.matcher(expression);
+    private static String createPlaceholders(String expr, List<Fraction> nums, Map<String, String> map) {
+        List<String> ns = new ArrayList<>();
+        for (Fraction f : nums) ns.add(f.toString());
+        ns.sort((a, b) -> b.length() - a.length());
+        StringBuilder pb = new StringBuilder();
+        for (String s : ns) { if (pb.length() > 0) pb.append("|"); pb.append(Pattern.quote(s)); }
+        Matcher matcher = Pattern.compile(pb.toString()).matcher(expr);
         StringBuffer sb = new StringBuffer();
         int i = 0;
-
-        while (matcher.find()) {
-            String placeholder = "#" + i + "#";
-            map.put(placeholder, matcher.group(0));
-            matcher.appendReplacement(sb, placeholder);
-            i++;
-        }
+        while (matcher.find()) { String p = "#" + i + "#"; map.put(p, matcher.group(0)); matcher.appendReplacement(sb, p); i++; }
         matcher.appendTail(sb);
         return sb.toString();
     }
 
-    private static Node parse(String expression) {
-        // --- 核心修改：剥离后缀防止解析非法字符 ---
-        expression = expression.replaceAll("(mod|base)\\s*\\d+.*", "").trim();
-
-        expression = expression.replaceAll("\\s", "");
-        Stack<Node> values = new Stack<>();
-        Stack<Character> ops = new Stack<>();
+    private static Node parse(String expr) {
+        expr = expr.replaceAll("(mod|base)\\s*\\d+.*", "").trim().replaceAll("\\s", "");
+        Stack<Node> values = new Stack<>(); Stack<Character> ops = new Stack<>();
         int i = 0;
-        while (i < expression.length()) {
-            char c = expression.charAt(i);
+        while (i < expr.length()) {
+            char c = expr.charAt(i);
             if (c == '(') { ops.push(c); i++; }
             else if (c == ')') {
-                while (!ops.isEmpty() && ops.peek() != '(') {
-                    values.push(new OperatorNode(ops.pop(), values.pop(), values.pop()));
-                }
-                if (!ops.isEmpty()) ops.pop();
-                i++;
+                while (!ops.isEmpty() && ops.peek() != '(') values.push(new OperatorNode(ops.pop(), values.pop(), values.pop()));
+                if (!ops.isEmpty()) ops.pop(); i++;
             } else if (c == '#') {
-                int j = expression.indexOf('#', i + 1);
-                values.push(new ValueNode(expression.substring(i, j + 1)));
-                i = j + 1;
+                int j = expr.indexOf('#', i + 1);
+                values.push(new ValueNode(expr.substring(i, j + 1))); i = j + 1;
             } else {
-                while (!ops.isEmpty() && hasPrecedence(c, ops.peek())) {
-                    values.push(new OperatorNode(ops.pop(), values.pop(), values.pop()));
-                }
-                ops.push(c);
-                i++;
+                while (!ops.isEmpty() && hasPrecedence(c, ops.peek())) values.push(new OperatorNode(ops.pop(), values.pop(), values.pop()));
+                ops.push(c); i++;
             }
         }
         while (!ops.isEmpty()) values.push(new OperatorNode(ops.pop(), values.pop(), values.pop()));
