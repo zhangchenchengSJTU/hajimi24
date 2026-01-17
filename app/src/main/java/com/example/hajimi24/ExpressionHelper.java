@@ -30,13 +30,37 @@ public class ExpressionHelper {
             return (val != null) ? val : "";
         }
 
+        // 辅助方法：判定当前数值是否是一个“隐式加减法表达式”（即复数）
+        private int getEffectivePrec(String val) {
+            // 如果包含 '+'，或者包含非首位的 '-'（如 '3-i'），则视为加减法优先级 (1)
+            if (val.contains("+") || (val.lastIndexOf("-") > 0)) {
+                return 1;
+            }
+            return 999; // 普通数字或纯虚数（如 '-i'）视为高优先级
+        }
+
         @Override public String toHtml(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
         @Override public String toPlainText(Map<String, String> map, boolean isStructureMode) { return getValue(map, isStructureMode); }
+
         @Override
         public String toLatex(Map<String, String> map, boolean isStructureMode, int parentPrec, boolean isRight) {
             String val = getValue(map, isStructureMode);
-            // 数值节点永远不需要外层括号
-            return "\\text{" + val + "}";
+            int myPrec = getEffectivePrec(val);
+
+            // 如果是结构模式，猫咪视为高优先级，不加括号
+            if (isStructureMode) myPrec = 999;
+
+            String result = "\\text{" + val + "}";
+
+            // --- 核心：复数作为子节点时，根据优先级决定是否加 \left( \right) ---
+            boolean needBrackets = false;
+            // 1. 如果父节点是乘法(2)或除法(3)，而我是加减法(1)，必须加括号
+            if (parentPrec > myPrec) needBrackets = true;
+            // 2. 如果父节点是减法，且我是减法右操作数，必须加括号：a - (3-i)
+            if (parentPrec == 1 && isRight && myPrec == 1) needBrackets = true;
+
+            if (needBrackets) return "\\left(" + result + "\\right)";
+            return result;
         }
     }
 
@@ -88,7 +112,8 @@ public class ExpressionHelper {
             if (parentPrec > myPrec) needBrackets = true;
             if (parentPrec == 1 && isRight && myPrec == 1) needBrackets = true;
 
-            // 关键：确保 \left( 直接包裹数学内容，不被 \text 包裹，才能自适应分式高度
+            // 只要有需要，就用 \left( 和 \right) 包裹。
+            // 在 displayMode 模式下，它们会感知内部 \cfrac 的高度并自动拉伸。
             if (needBrackets) return "\\left(" + result + "\\right)";
             return result;
         }

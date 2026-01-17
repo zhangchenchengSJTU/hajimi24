@@ -103,17 +103,21 @@ public class MainActivity extends AppCompatActivity {
         WebSettings settings = wv.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
 
-        // 1. 消除滞留：加载新内容前先彻底隐藏
+        // 1. 消除滞留：加载前先隐藏
         wv.setVisibility(View.INVISIBLE);
 
-        // 2. 检测复杂度（\cfrac 出现次数）：若大于等于 2 个分式，则调小字号
+        // 2. 智能字号：检测 \cfrac 数量
         int cfracCount = (content.length() - content.replace("cfrac", "").length()) / 5;
-        String fontSize = (cfracCount >= 2) ? "1.1em" : "1.4em";
+        String fontSize = (cfracCount >= 2) ? "1.05em" : "1.35em";
 
         wv.setBackgroundColor(0);
         String escaped = content.replace("\\", "\\\\").replace("'", "\\'");
 
+        // 3. 构建 HTML：移除所有 JS 内部注释，防止语法错误
         String html = "<!DOCTYPE html><html><head>" +
                 "<meta charset='UTF-8'>" +
                 "<link rel='stylesheet' href='katex.min.css'>" +
@@ -121,26 +125,31 @@ public class MainActivity extends AppCompatActivity {
                 "<style>" +
                 "  body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
                 "         height: 100vh; background: transparent; overflow: hidden; " +
-                "         color: #000000; font-weight: bold; }" + // 纯黑
-                "  #math { font-size: " + fontSize + "; text-align: center; white-space: nowrap; }" +
+                "         color: #000000; font-family: sans-serif; font-weight: bold; }" +
+                "  .katex-display { margin: 0 !important; } " +
+                "  #math { font-size: " + fontSize + "; text-align: center; }" +
                 "</style>" +
                 "</head><body><div id='math'></div><script>" +
                 "  window.onload = function() {" +
                 "    try {" +
-                "      katex.render('" + escaped + "', document.getElementById('math'), {throwOnError: false});" +
-                "    } catch (e) { document.getElementById('math').textContent = ''; }" +
+                "      if (typeof katex !== 'undefined') {" +
+                "          /* 这里的渲染参数 displayMode: true 是括号自适应的关键 */" +
+                "          katex.render('\\\\displaystyle ' + '" + escaped + "', document.getElementById('math'), " +
+                "              { throwOnError: false, displayMode: true });" +
+                "      }" +
+                "    } catch (e) { document.getElementById('math').textContent = 'Error'; }" +
                 "  };" +
                 "</script></body></html>";
 
-        // 3. 渲染完成后再显示，解决闪烁和内容滞留
+        // 4. 渲染完成后再显示，消除闪烁和旧内容滞留
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // 延迟一小会儿显示，确保渲染已生效
-                wv.postDelayed(() -> wv.setVisibility(View.VISIBLE), 50);
+                wv.postDelayed(() -> wv.setVisibility(View.VISIBLE), 40);
             }
         });
 
+        // 必须通过 file 协议指向 assets，否则 fonts 无法加载导致括号断裂
         wv.loadDataWithBaseURL("file:///android_asset/katex/", html, "text/html", "UTF-8", null);
     }
 
