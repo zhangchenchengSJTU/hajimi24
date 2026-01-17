@@ -15,7 +15,6 @@ import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.content.res.ResourcesCompat;
 import android.webkit.WebView;
 import android.webkit.WebSettings;
-import android.database.DatabaseUtils;
 import android.webkit.WebViewClient;
 
 
