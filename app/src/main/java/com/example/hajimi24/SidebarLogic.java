@@ -417,12 +417,18 @@ public class SidebarLogic {
             int id = item.getItemId();
             String title = item.getTitle().toString();
 
-            if (id == 2000) { // 在线题库按钮
-                isExploringLocal = false; // 必须重置为 false
-                if (cachedRemoteFiles == null) {
-                    fetchRemoteFilesAndShowDialog();
+            if (id == 2000) { // 在线题库
+                isExploringLocal = false;
+                isExploringDocs = false; // [关键修复]：重置文档标记
+
+                // [关键修复]：检查缓存内容是否匹配当前需要的目录
+                boolean isCacheValid = (cachedRemoteFiles != null && !cachedRemoteFiles.isEmpty()
+                        && cachedRemoteFiles.get(0).path.startsWith("data/"));
+
+                if (!isCacheValid) {
+                    fetchRemoteFilesAndShowDialog(); // 重新抓取 data/ 目录
                 } else {
-                    currentExplorerPath = "data/"; // 确保路径重置
+                    currentExplorerPath = "data/";
                     showFileExplorerDialog();
                 }
                 return true;
@@ -433,8 +439,9 @@ public class SidebarLogic {
                 return true;
             }
 
-            if (id == 3000) { // 本地题库按钮
-                isExploringLocal = true; // 设置为 true
+            if (id == 3000) { // 本地题库
+                isExploringLocal = true;
+                isExploringDocs = false; // [关键修复]：重置文档标记
                 fetchLocalFilesAndShowDialog();
                 return true;
             }
@@ -871,6 +878,14 @@ public class SidebarLogic {
 
         // 根据模式选择数据源
         List<ProblemRepository.RemoteFile> dataSource = isExploringLocal ? cachedLocalFiles : cachedRemoteFiles;
+        if (dataSource == null || dataSource.isEmpty()) {
+            Toast.makeText(activity, "暂无可用资源，请尝试刷新", Toast.LENGTH_SHORT).show();
+            // 如果是在线模式且为空，自动触发一次刷新 (可选)
+            if (!isExploringLocal) {
+                fetchRemoteFilesAndShowDialog();
+                return;
+            }
+        }
 
         if (dataSource != null) {
             for (ProblemRepository.RemoteFile f : dataSource) {
@@ -1338,6 +1353,10 @@ public class SidebarLogic {
 
     // 1. 新增：通用的远程文件抓取并打开资源管理器方法
     private void fetchFilesAndShow(String rootDir, String extension) {
+        if (cachedRemoteFiles != null && !cachedRemoteFiles.isEmpty()
+                && !cachedRemoteFiles.get(0).path.startsWith(rootDir)) {
+            cachedRemoteFiles = null;
+        }
         Toast.makeText(activity, "正在同步目录...", Toast.LENGTH_SHORT).show();
         repository.fetchRemoteFileTree(rootDir, extension, new ProblemRepository.MenuDataCallback() {
             @Override
