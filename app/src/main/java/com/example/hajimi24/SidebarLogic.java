@@ -703,26 +703,34 @@ public class SidebarLogic {
                 dialog.dismiss();
 
                 if (isExploringDocs) {
-                    // === 核心逻辑：准备滑动文档列表 ===
                     List<String> allDocsInFolder = new ArrayList<>();
-                    // 从当前 adapter 中提取所有文档（排除目录项）
+                    // 新增：记录文件名到 SHA 的映射
+                    java.util.Map<String, String> nameToShaMap = new java.util.HashMap<>();
+
                     for (int i = 0; i < adapter.getCount(); i++) {
                         String text = adapter.getItem(i);
                         if (text != null && text.startsWith("📄 ")) {
-                            allDocsInFolder.add(text.replace("📄 ", ""));
+                            String name = text.replace("📄 ", "");
+                            allDocsInFolder.add(name);
+
+                            // 从缓存的远程文件列表中寻找 SHA
+                            if (!isExploringLocal && cachedRemoteFiles != null) {
+                                for (ProblemRepository.RemoteFile rf : cachedRemoteFiles) {
+                                    if (rf.name.equals(name) && rf.path.contains(currentExplorerPath)) {
+                                        nameToShaMap.put(name, rf.sha);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
-
-                    // 排序：确保 (1) 内容.md 在 (2) 内容.md 之前
                     Collections.sort(allDocsInFolder);
-
-                    // 找到当前点击文件在列表中的位置
                     int initialIndex = allDocsInFolder.indexOf(fileName);
 
-                    // 启动滑动预览对话框
-                    showScrollingDocsDialog(allDocsInFolder, initialIndex);
+                    // 传入映射表
+                    showScrollingDocsDialog(allDocsInFolder, initialIndex, nameToShaMap);
                 } else {
-                    // 原有的题库加载逻辑
+                    // 题库逻辑保持不变
                     if (isExploringLocal) loadLocalProblemSet(fullPath);
                     else startDownloadWithProgress(fullPath, fileName);
                 }
@@ -734,24 +742,33 @@ public class SidebarLogic {
     }
 
 
-    private void showScrollingDocsDialog(List<String> docNames, int startIndex) {
-        // 使用全屏样式
+    // SidebarLogic.java
+
+    private void showScrollingDocsDialog(List<String> docNames, int startIndex, java.util.Map<String, String> shaMap) {
         AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
 
-        ViewPager2 viewPager = new ViewPager2(activity);
-        viewPager.setLayoutParams(new ViewGroup.LayoutParams(-1, -1));
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xFFFFFFFF);
 
-        // 设置适配器
+        Button btnClose = new Button(activity);
+        btnClose.setText("✕ 关闭阅读 (左右滑动切换上一篇/下一篇)");
+        btnClose.setBackgroundColor(0x10000000);
+        root.addView(btnClose);
+
+        ViewPager2 viewPager = new ViewPager2(activity);
+        viewPager.setLayoutParams(new LinearLayout.LayoutParams(-1, -1));
+
         viewPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            public RecyclerView.ViewHolder onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
                 WebView wv = new WebView(activity);
-                wv.setLayoutParams(new ViewGroup.LayoutParams(-1, -1));
-                // 必须开启 JS 以支持 MathJax
+                wv.setLayoutParams(new android.view.ViewGroup.LayoutParams(-1, -1));
                 WebSettings s = wv.getSettings();
                 s.setJavaScriptEnabled(true);
                 s.setAllowFileAccess(true);
                 s.setAllowUniversalAccessFromFileURLs(true);
+                s.setDomStorageEnabled(true);
                 return new RecyclerView.ViewHolder(wv) {};
             }
 
@@ -759,27 +776,31 @@ public class SidebarLogic {
             public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
                 WebView wv = (WebView) holder.itemView;
                 String fileName = docNames.get(position);
-                String fullPath = currentExplorerPath + fileName;
+                String path = currentExplorerPath + fileName;
+                // 核心修复：从传入的 shaMap 中获取当前文件的 SHA
+                String remoteSha = (shaMap != null) ? shaMap.get(fileName) : null;
 
-                // 加载内容逻辑（异步）
                 new Thread(() -> {
                     try {
                         String content;
-                        if (isExploringLocal) {
-                            java.io.File file = new java.io.File(activity.getFilesDir(), fullPath);
+                        // 判定逻辑：如果是本地模式，或在线模式且无需更新
+                        boolean needsUpdate = !isExploringLocal && remoteSha != null && repository.needsUpdate(path, remoteSha);
+
+                        if (isExploringLocal || (!needsUpdate && repository.isFileDownloaded(path))) {
+                            java.io.File file = new java.io.File(activity.getFilesDir(), path);
                             java.io.FileInputStream fis = new java.io.FileInputStream(file);
                             byte[] data = new byte[(int) file.length()];
                             fis.read(data); fis.close();
                             content = new String(data, "UTF-8");
                         } else {
-                            content = repository.downloadRawText(fullPath);
-                            saveDocToLocal(fullPath, content); // 自动缓存
+                            content = repository.downloadRawText(path);
+                            // 传入 remoteSha 以便保存更新标记
+                            saveDocToLocal(path, content, remoteSha);
                         }
-
                         String html = MarkdownUtils.renderMarkdown(content);
                         activity.runOnUiThread(() -> wv.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null));
                     } catch (Exception e) {
-                        activity.runOnUiThread(() -> wv.loadData("<html><body>加载失败</body></html>", "text/html", "UTF-8"));
+                        activity.runOnUiThread(() -> wv.loadData("<html><body>文档加载失败</body></html>", "text/html", "UTF-8"));
                     }
                 }).start();
             }
@@ -788,26 +809,14 @@ public class SidebarLogic {
             public int getItemCount() { return docNames.size(); }
         });
 
-        // 跳转到初始点击的那一篇
         viewPager.setCurrentItem(startIndex, false);
-
-        // 创建布局容器，添加一个关闭按钮
-        LinearLayout container = new LinearLayout(activity);
-        container.setOrientation(LinearLayout.VERTICAL);
-
-        Button btnClose = new Button(activity);
-        btnClose.setText("✕ 关闭文档预览 (左滑右滑可切换)");
-        btnClose.setBackgroundColor(0x10000000);
-        btnClose.setOnClickListener(v -> b.create().dismiss()); // 这里逻辑需要微调以获取对话框实例
-
-        container.addView(btnClose);
-        container.addView(viewPager);
-
-        b.setView(container);
+        root.addView(viewPager);
+        b.setView(root);
         AlertDialog docDialog = b.create();
         btnClose.setOnClickListener(v -> docDialog.dismiss());
         docDialog.show();
     }
+
 
     // 辅助递归删除（放在 SidebarLogic 类末尾即可）
     private void deleteRecursive(java.io.File fileOrDirectory) {
@@ -818,32 +827,23 @@ public class SidebarLogic {
     }
 
     private void handleDocSelection(String path, String name) {
+        // 注：有了 showScrollingDocsDialog 后，此方法通常只作为单个文档打开的回退
+        // 这里我们也需要匹配 3 参数的 saveDocToLocal
         new Thread(() -> {
             try {
-                String content;
-                if (isExploringLocal) {
-                    // 本地模式：读取
-                    java.io.File file = new java.io.File(activity.getFilesDir(), path);
-                    java.io.FileInputStream fis = new java.io.FileInputStream(file);
-                    byte[] data = new byte[(int) file.length()];
-                    fis.read(data); fis.close();
-                    content = new String(data, "UTF-8");
-                } else {
-                    // 在线模式：下载并同时保存到本地
-                    content = repository.downloadRawText(path);
-                    saveDocToLocal(path, content); // 实现“看过即下载”
-
-                    // 提示用户已下载（可选）
-                    activity.runOnUiThread(() -> Toast.makeText(activity, "文档已缓存至本地", Toast.LENGTH_SHORT).show());
-                }
+                String content = repository.downloadRawText(path);
+                // 暂时传 null，因为单选模式很难直接获取 SHA 列表，
+                // 建议统一走 showScrollingDocsDialog 逻辑。
+                saveDocToLocal(path, content, null);
 
                 final String html = MarkdownUtils.renderMarkdown(content);
                 activity.runOnUiThread(() -> showMarkdownWebViewDialog(name, html));
             } catch (Exception e) {
-                activity.runOnUiThread(() -> Toast.makeText(activity, "文档加载失败", Toast.LENGTH_SHORT).show());
+                activity.runOnUiThread(() -> Toast.makeText(activity, "加载失败", Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
+
 
     private void showMarkdownWebViewDialog(String title, String html) {
         AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
@@ -1357,7 +1357,9 @@ public class SidebarLogic {
     }
 
     // 2. 新增：保存文档到本地
-    private void saveDocToLocal(String path, String content) {
+// SidebarLogic.java
+
+    private void saveDocToLocal(String path, String content, String sha) {
         try {
             java.io.File file = new java.io.File(activity.getFilesDir(), path);
             java.io.File parent = file.getParentFile();
@@ -1365,8 +1367,15 @@ public class SidebarLogic {
             java.io.FileWriter fw = new java.io.FileWriter(file);
             fw.write(content);
             fw.close();
+
+            // 存入 SHA 标记，确保版本刷新逻辑生效
+            if (sha != null && !sha.isEmpty()) {
+                repository.saveLocalFileSHA(path, sha);
+            }
         } catch (Exception e) { e.printStackTrace(); }
     }
+
+
 
 
     private Fraction parseTokenToFraction(String token) {
