@@ -228,4 +228,68 @@ public class ExpressionHelper {
         int p2 = (op2 == '*' || op2 == '/') ? 2 : 1;
         return p1 <= p2;
     }
+
+    /**
+     * 计算 LaTeX 字符串的“垂直高度”
+     * 规则：普通文本高度为 1，分数 \cfrac{A}{B} 的高度为 高度(A) + 高度(B)
+     */
+    public static int getLatexHeight(String s) {
+        if (s == null || s.trim().isEmpty()) return 0;
+        // 移除装饰性的后缀 (如 mod n)，避免干扰计算
+        String mathPart = s.replaceAll("\\\\quad.*", "").trim();
+        return calculateVisualHeight(mathPart);
+    }
+
+    private static int calculateVisualHeight(String s) {
+        // 基本情况：如果不包含分数命令，高度就是 1 层
+        if (!s.contains("\\cfrac")) return 1;
+
+        int maxHeight = 1;
+        int i = 0;
+        while (i < s.length()) {
+            // 匹配顶层的 \cfrac{
+            if (s.startsWith("\\cfrac{", i)) {
+                int firstOpen = i + 6;
+                int firstClose = findMatchingBrace(s, firstOpen);
+                if (firstClose != -1) {
+                    // 寻找分母部分的起始 {
+                    int secondOpen = s.indexOf("{", firstClose);
+                    if (secondOpen != -1) {
+                        int secondClose = findMatchingBrace(s, secondOpen);
+                        if (secondClose != -1) {
+                            // 递归提取分子和分母
+                            String num = s.substring(firstOpen + 1, firstClose);
+                            String den = s.substring(secondOpen + 1, secondClose);
+
+                            // 【核心逻辑】：高度相加
+                            int h = calculateVisualHeight(num) + calculateVisualHeight(den);
+
+                            // 如果一行有多个分数，取最高的那一个
+                            if (h > maxHeight) maxHeight = h;
+
+                            // 跳过已处理的部分
+                            i = secondClose + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            i++;
+        }
+        return maxHeight;
+    }
+
+    private static int findMatchingBrace(String s, int openIdx) {
+        if (openIdx < 0 || openIdx >= s.length() || s.charAt(openIdx) != '{') return -1;
+        int balance = 0;
+        for (int i = openIdx; i < s.length(); i++) {
+            if (s.charAt(i) == '{') balance++;
+            else if (s.charAt(i) == '}') balance--;
+            if (balance == 0) return i;
+        }
+        return -1;
+    }
+
+
+
 }

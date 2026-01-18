@@ -108,15 +108,27 @@ public class SidebarLogic {
         });
     }
 
+    private void applyLayoutPadding(int topDp, int bottomDp) {
+        // 通过寻找按钮的父布局来获取主界面的 ConstraintLayout
+        View mainContent = activity.findViewById(R.id.btn_menu).getParent() instanceof View ?
+                (View)activity.findViewById(R.id.btn_menu).getParent() : null;
+        if (mainContent != null) {
+            float density = activity.getResources().getDisplayMetrics().density;
+            // 保持原本的左右内边距 (16dp)
+            int sidePadding = (int)(16 * density);
+            mainContent.setPadding(sidePadding, (int)(topDp * density), sidePadding, (int)(bottomDp * density));
+        }
+    }
 
-    private void showLayoutAdjustmentDialog() {
+
+    public void showLayoutAdjustmentDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("📏 界面布局调整");
 
         final ScrollView scrollView = new ScrollView(activity);
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(60, 40, 60, 40);
+        layout.setPadding(75, 50, 75, 50);
         scrollView.addView(layout);
 
         SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
@@ -124,22 +136,33 @@ public class SidebarLogic {
 
         // 💡 操作提示
         TextView tvHint = new TextView(activity);
-        tvHint.setText("💡 提示：按住对话框外区域可预览布局");
+        tvHint.setText("\n按住对话框外区域可预览布局\n");
         tvHint.setTextSize(13);
         tvHint.setTextColor(android.graphics.Color.GRAY);
-        tvHint.setPadding(0, 0, 0, 30);
+        tvHint.setGravity(android.view.Gravity.CENTER);
+        tvHint.setPadding(0, 10, 0, 50);
         layout.addView(tvHint);
 
-        // --- 1. 卡片顶部间距 ---
+        // --- 1. 卡片区域顶部间距 ---
+        LinearLayout row1 = new LinearLayout(activity);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        TextView tv1Label = new TextView(activity);
+        tv1Label.setText("🃏 卡片区域顶部间距");
+        tv1Label.setTextSize(15);
+        final TextView tv1Val = new TextView(activity);
+        tv1Val.setTextSize(15);
+        row1.addView(tv1Label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        row1.addView(tv1Val, new LinearLayout.LayoutParams(-2, -2));
+        layout.addView(row1);
+
+        final android.widget.SeekBar sb1 = new android.widget.SeekBar(activity);
         int top = prefs.getInt("grid_margin_top", 40);
-        final TextView tv1 = new TextView(activity);
-        tv1.setText("卡片顶部间距: " + top + " dp");
-        layout.addView(tv1);
-        android.widget.SeekBar sb1 = new android.widget.SeekBar(activity);
-        sb1.setMax(250); sb1.setProgress(top);
+        tv1Val.setText(top + " dp");
+        sb1.setPadding(0, 35, 0, 10);
+        sb1.setMax(100); sb1.setProgress(top);
         sb1.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
-                tv1.setText("卡片顶部间距: " + p + " dp");
+                tv1Val.setText(p + " dp");
                 applyGridMargin(p);
             }
             @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
@@ -148,31 +171,32 @@ public class SidebarLogic {
             }
         });
         layout.addView(sb1);
+        layout.addView(new View(activity), new LinearLayout.LayoutParams(-1, (int)(25 * density)));
 
         // --- 2. 信息区底部偏移 ---
-        int msgBottom = prefs.getInt("message_margin_bottom", 0);
-        final TextView tv2 = new TextView(activity);
-        tv2.setText("\n信息区底部偏移: " + msgBottom + " dp");
-        layout.addView(tv2);
+        LinearLayout row2 = new LinearLayout(activity);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        TextView tv2Label = new TextView(activity);
+        tv2Label.setText("💬 信息区底部偏移量");
+        tv2Label.setTextSize(15);
+        final TextView tv2Val = new TextView(activity);
+        tv2Val.setTextSize(15);
+        row2.addView(tv2Label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        row2.addView(tv2Val, new LinearLayout.LayoutParams(-2, -2));
+        layout.addView(row2);
 
-        android.widget.SeekBar sb2 = new android.widget.SeekBar(activity);
+        final android.widget.SeekBar sb2 = new android.widget.SeekBar(activity);
+        int msgBottom = prefs.getInt("message_margin_bottom", 0);
+        tv2Val.setText(msgBottom + " dp");
+        sb2.setPadding(0, 35, 0, 10);
         sb2.setMax(400); sb2.setProgress(msgBottom + 200);
         sb2.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
                 int val = p - 200;
-                tv2.setText("\n信息区底部偏移: " + val + " dp");
+                tv2Val.setText(val + " dp");
                 View tvMsg = activity.findViewById(R.id.tv_message_area);
-                View wvMath = activity.findViewById(R.id.wv_math_message);
-                if (wvMath != null) {
-                    wvMath.setVisibility(View.GONE);
-                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpW =
-                            (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) wvMath.getLayoutParams();
-                    lpW.bottomMargin = (int) (val * density);
-                    wvMath.setLayoutParams(lpW);
-                }
                 if (tvMsg != null) {
-                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpT =
-                            (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
+                    androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lpT = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMsg.getLayoutParams();
                     lpT.bottomMargin = (int) (val * density);
                     tvMsg.setLayoutParams(lpT);
                     tvMsg.setVisibility(View.VISIBLE);
@@ -185,78 +209,155 @@ public class SidebarLogic {
             }
         });
         layout.addView(sb2);
+        layout.addView(new View(activity), new LinearLayout.LayoutParams(-1, (int)(25 * density)));
 
-        // --- 分割线 ---
-        View divider = new View(activity);
-        LinearLayout.LayoutParams dpLp = new LinearLayout.LayoutParams(-1, 2); dpLp.setMargins(0, 40, 0, 20);
-        divider.setLayoutParams(dpLp); divider.setBackgroundColor(android.graphics.Color.LTGRAY);
-        layout.addView(divider);
+        // --- 3. 整体顶部留白 ---
+        LinearLayout rowTopPadding = new LinearLayout(activity);
+        rowTopPadding.setOrientation(LinearLayout.HORIZONTAL);
+        TextView tvTopPaddingLabel = new TextView(activity);
+        tvTopPaddingLabel.setText("⏫ 顶部留白");
+        tvTopPaddingLabel.setTextSize(15);
+        final TextView tvTopPaddingVal = new TextView(activity);
+        tvTopPaddingVal.setTextSize(15);
+        rowTopPadding.addView(tvTopPaddingLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        rowTopPadding.addView(tvTopPaddingVal, new LinearLayout.LayoutParams(-2, -2));
+        layout.addView(rowTopPadding);
 
-        // --- 3. 主题模式切换 (整合自 555) ---
-        TextView tvThemeLabel = new TextView(activity);
-        tvThemeLabel.setText("🌓 主题模式选择");
-        tvThemeLabel.setPadding(0, 10, 0, 10);
-        layout.addView(tvThemeLabel);
-
-        Spinner spinnerTheme = new Spinner(activity);
-        String[] themes = {"跟随系统", "日间模式", "夜间模式"};
-        ArrayAdapter<String> themeAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, themes);
-        themeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerTheme.setAdapter(themeAdapter);
-
-        // 设置当前选中项
-        int currentMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
-        if (currentMode == AppCompatDelegate.MODE_NIGHT_NO) spinnerTheme.setSelection(1);
-        else if (currentMode == AppCompatDelegate.MODE_NIGHT_YES) spinnerTheme.setSelection(2);
-        else spinnerTheme.setSelection(0);
-
-        spinnerTheme.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                int selectedMode;
-                if (position == 1) selectedMode = AppCompatDelegate.MODE_NIGHT_NO;
-                else if (position == 2) selectedMode = AppCompatDelegate.MODE_NIGHT_YES;
-                else selectedMode = AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
-
-                if (selectedMode != prefs.getInt("theme_mode", -1)) {
-                    prefs.edit().putInt("theme_mode", selectedMode).apply();
-                    AppCompatDelegate.setDefaultNightMode(selectedMode);
-                }
+        final android.widget.SeekBar sbTopPadding = new android.widget.SeekBar(activity);
+        int layoutTop = prefs.getInt("layout_padding_top", 50);
+        tvTopPaddingVal.setText(layoutTop + " dp");
+        sbTopPadding.setPadding(0, 35, 0, 10);
+        sbTopPadding.setMax(100); sbTopPadding.setProgress(layoutTop);
+        sbTopPadding.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                tvTopPaddingVal.setText(p + " dp");
+                applyLayoutPadding(p, prefs.getInt("layout_padding_bottom", 30));
             }
-            @Override public void onNothingSelected(AdapterView<?> parent) {}
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {
+                prefs.edit().putInt("layout_padding_top", s.getProgress()).apply();
+            }
         });
-        layout.addView(spinnerTheme);
+        layout.addView(sbTopPadding);
+        layout.addView(new View(activity), new LinearLayout.LayoutParams(-1, (int)(25 * density)));
 
-        // --- 4. 开关项 ---
+        // --- 4. 整体底部留白 ---
+        LinearLayout rowBottomPadding = new LinearLayout(activity);
+        rowBottomPadding.setOrientation(LinearLayout.HORIZONTAL);
+        TextView tvBottomPaddingLabel = new TextView(activity);
+        tvBottomPaddingLabel.setText("⏬ 底部留白");
+        tvBottomPaddingLabel.setTextSize(15);
+        final TextView tvBottomPaddingVal = new TextView(activity);
+        tvBottomPaddingVal.setTextSize(15);
+        rowBottomPadding.addView(tvBottomPaddingLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        rowBottomPadding.addView(tvBottomPaddingVal, new LinearLayout.LayoutParams(-2, -2));
+        layout.addView(rowBottomPadding);
+
+        final android.widget.SeekBar sbBottomPadding = new android.widget.SeekBar(activity);
+        int layoutBottom = prefs.getInt("layout_padding_bottom", 30);
+        tvBottomPaddingVal.setText(layoutBottom + " dp");
+        sbBottomPadding.setPadding(0, 35, 0, 10);
+        sbBottomPadding.setMax(100); sbBottomPadding.setProgress(layoutBottom);
+        sbBottomPadding.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                tvBottomPaddingVal.setText(p + " dp");
+                applyLayoutPadding(prefs.getInt("layout_padding_top", 50), p);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {
+                prefs.edit().putInt("layout_padding_bottom", s.getProgress()).apply();
+            }
+        });
+        layout.addView(sbBottomPadding);
+        layout.addView(new View(activity), new LinearLayout.LayoutParams(-1, (int)(30 * density)));
+
+        // --- 5. 加粗开关 ---
+        LinearLayout row4 = new LinearLayout(activity);
+        row4.setOrientation(LinearLayout.HORIZONTAL);
+        row4.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView tv4Label = new TextView(activity);
+        tv4Label.setText("✍️ 加粗数字与提示文本");
+        tv4Label.setTextSize(15);
+        row4.addView(tv4Label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         androidx.appcompat.widget.SwitchCompat swBold = new androidx.appcompat.widget.SwitchCompat(activity);
-        swBold.setText("加粗数字和符号");
-        swBold.setPadding(0, 20, 0, 10);
         swBold.setChecked(prefs.getBoolean("use_bold_text", false));
         swBold.setOnCheckedChangeListener((v, c) -> {
             prefs.edit().putBoolean("use_bold_text", c).apply();
             if (activity instanceof MainActivity) ((MainActivity) activity).applyTextWeight(c);
         });
-        layout.addView(swBold);
+        row4.addView(swBold, new LinearLayout.LayoutParams(-2, -2));
+        layout.addView(row4);
+        layout.addView(new View(activity), new LinearLayout.LayoutParams(-1, (int)(30 * density)));
 
-        androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
-        swLatex.setText("启用 LaTeX 高质量渲染");
-        swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
-        swLatex.setOnCheckedChangeListener((v, c) -> {
-            prefs.edit().putBoolean("use_latex_mode", c).apply();
-            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+        // --- 6. 主题模式选择 ---
+        LinearLayout rowTheme = new LinearLayout(activity);
+        rowTheme.setOrientation(LinearLayout.HORIZONTAL);
+        rowTheme.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView tvThemeLabel = new TextView(activity);
+        tvThemeLabel.setText("🌓 主题模式");
+        tvThemeLabel.setTextSize(15);
+        rowTheme.addView(tvThemeLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.RadioGroup rgTheme = new android.widget.RadioGroup(activity);
+        rgTheme.setOrientation(android.widget.RadioGroup.HORIZONTAL);
+        String[] themeNames = {"自动", "日", "夜"};
+        int[] themeValues = {AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM, AppCompatDelegate.MODE_NIGHT_NO, AppCompatDelegate.MODE_NIGHT_YES};
+        int currentMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        for (int i = 0; i < 3; i++) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
+            rb.setText(themeNames[i]);
+            rb.setTextSize(13);
+            rb.setId(i + 1000);
+            rgTheme.addView(rb);
+            if (currentMode == themeValues[i]) rb.setChecked(true);
+        }
+        rowTheme.addView(rgTheme);
+        layout.addView(rowTheme);
+        rgTheme.setOnCheckedChangeListener((group, checkedId) -> {
+            int selectedMode = themeValues[checkedId - 1000];
+            if (selectedMode != prefs.getInt("theme_mode", -1)) {
+                prefs.edit().putBoolean("reopen_layout_dialog", true).apply();
+                prefs.edit().putInt("theme_mode", selectedMode).apply();
+                AppCompatDelegate.setDefaultNightMode(selectedMode);
+            }
         });
-        layout.addView(swLatex);
 
         builder.setView(scrollView);
+
+        // 底部按钮设置
         builder.setPositiveButton("完成", (d, w) -> {
             View tvMsg = activity.findViewById(R.id.tv_message_area);
             if (tvMsg != null) ((TextView)tvMsg).setText("");
         });
 
+        // 1. 设置中立按钮，但先不传监听器（防止自动关闭）
+        builder.setNeutralButton("重置布局", null);
+
         final AlertDialog dialog = builder.create();
         dialog.show();
 
-        // 窥屏逻辑 (保持不变)
+        // 2. 【核心修复】：手动接管重置按钮点击事件，使其不触发 dismiss()
+        android.widget.Button btnResetLayout = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        btnResetLayout.setOnClickListener(v -> {
+            // 执行重置逻辑
+            prefs.edit()
+                    .putInt("grid_margin_top", 20)
+                    .putInt("message_margin_bottom", 0)
+                    .putInt("layout_padding_top", 40)
+                    .putInt("layout_padding_bottom", 30)
+                    .apply();
+
+            // 更新滑动条状态（这会通过监听器自动触发实时预览更新）
+            sb1.setProgress(20);
+            sb2.setProgress(200); // 200 代表偏移量 0
+            sbTopPadding.setProgress(20);
+            sbBottomPadding.setProgress(20);
+
+            android.widget.Toast.makeText(activity, "已恢复默认布局参数", android.widget.Toast.LENGTH_SHORT).show();
+
+            // 注意：此处不调用 dialog.dismiss()，所以对话框会保持显示
+        });
+
+        // 预览逻辑
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.getDecorView().setOnTouchListener((v, event) -> {
@@ -266,15 +367,16 @@ public class SidebarLogic {
                         rawY >= loc[1] && rawY <= (loc[1] + scrollView.getHeight());
                 if (event.getAction() == android.view.MotionEvent.ACTION_DOWN && !isInside) {
                     window.getDecorView().setAlpha(0f); window.setDimAmount(0f); return true;
-                } else if (event.getAction() == android.view.MotionEvent.ACTION_UP || event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
-                    if (window.getDecorView().getAlpha() < 1f) { window.getDecorView().setAlpha(1f); window.setDimAmount(0.5f); return true; }
+                } else if (event.getAction() == android.view.MotionEvent.ACTION_UP ||
+                        event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                    if (window.getDecorView().getAlpha() < 1f) {
+                        window.getDecorView().setAlpha(1f); window.setDimAmount(0.5f); return true;
+                    }
                 }
                 return false;
             });
         }
     }
-
-
 
     private String formatFileSize(long size) {
         if (size <= 0) return "0 B";
@@ -506,109 +608,186 @@ public class SidebarLogic {
     private void refreshMenu() {
         Menu menu = navigationView.getMenu();
         menu.clear();
-        // 1. 题库区
-        SubMenu problemGroup = menu.addSubMenu("📚 游戏题库");
-        problemGroup.add(Menu.NONE, 2000, Menu.NONE, "🌐 在线题库");
-        problemGroup.add(Menu.NONE, 3000, Menu.NONE, "📂 本地题库");
-        problemGroup.add(Menu.NONE, 999, Menu.NONE, "📥 一键同步题库");
 
-        // 2. 文档区 (新)
-        SubMenu docGroup = menu.addSubMenu("📖 游戏说明书");
-        docGroup.add(Menu.NONE, 4000, Menu.NONE, "🛜 在线文档");
-        docGroup.add(Menu.NONE, 5000, Menu.NONE, "📑 本地文档");
+        // --- 第一组：资源中心 ---
+        SubMenu problemGroup = menu.addSubMenu(getStyledTitle("资源管理 / DATABASE"));
+        problemGroup.add(Menu.NONE, 2000, Menu.NONE, "🌐  在线题库");
+        problemGroup.add(Menu.NONE, 3000, Menu.NONE, "📂  本地题库");
+        problemGroup.add(Menu.NONE, 999, Menu.NONE, "📥  一键同步");
 
-        // 3. 设置区
-        SubMenu settingsGroup = menu.addSubMenu("🛠️️ 系统设置");
-        settingsGroup.add(Menu.NONE, 444, Menu.NONE, "📏 界面布局调整");
-        settingsGroup.add(Menu.NONE, 777, Menu.NONE, "⚙️ 模式设定");
-        settingsGroup.add(Menu.NONE, 666, Menu.NONE, "🧮 24点计算器");
-        settingsGroup.add(Menu.NONE, 555, Menu.NONE, "💲 LaTeX 显示设置");
+        // --- 第二组：帮助文档 ---
+        SubMenu docGroup = menu.addSubMenu(getStyledTitle("使用指南 / GUIDES"));
+        docGroup.add(Menu.NONE, 4000, Menu.NONE, "🛜  在线文档");
+        docGroup.add(Menu.NONE, 5000, Menu.NONE, "📑  本地缓存");
 
-        SubMenu randomGroup = menu.addSubMenu("🎲 随机休闲练习");
-        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣ 随机休闲 (3数)");
-        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣ 随机休闲 (4数)");
-        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣ 随机休闲 (5数)");
+        // --- 第三组：系统工具 ---
+        SubMenu settingsGroup = menu.addSubMenu(getStyledTitle("工具设定 / SETTINGS"));
+        settingsGroup.add(Menu.NONE, 444, Menu.NONE, "📏  界面布局调整");
+        settingsGroup.add(Menu.NONE, 777, Menu.NONE, "⚙️  游戏模式设定");
+        settingsGroup.add(Menu.NONE, 666, Menu.NONE, "🧮  24点计算器");
+        settingsGroup.add(Menu.NONE, 555, Menu.NONE, "💲  LaTeX 显示设置");
+
+        // --- 第四组：快速开始 ---
+        SubMenu randomGroup = menu.addSubMenu(getStyledTitle("随机模式 / RANDOM"));
+        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣  随机休闲 (3数)");
+        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣  随机休闲 (4数)");
+        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣  随机休闲 (5数)");
     }
+
+    /**
+     * 辅助方法：生成一个看起来像“副标题”的样式字符串
+     */
+    private android.text.SpannableString getStyledTitle(String text) {
+        // 在标题前后增加装饰线，使其更像分隔符
+        String decoratedText = "──  " + text;
+        android.text.SpannableString s = new android.text.SpannableString(decoratedText);
+
+        // 1. 设置颜色为中灰色 (避开正文的纯黑/纯白)，产生层级感
+        s.setSpan(new android.text.style.ForegroundColorSpan(0xFF888888), 0, decoratedText.length(), 0);
+
+        // 2. 缩小字号 (0.8倍)，让分类标题不抢眼
+        s.setSpan(new android.text.style.RelativeSizeSpan(0.8f), 0, decoratedText.length(), 0);
+
+        // 3. 设置加粗
+        s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, decoratedText.length(), 0);
+
+        return s;
+    }
+
 
     private void showLatexSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("📐 LaTeX 显示设置");
+        builder.setTitle("📐 LaTeX 渲染设置");
+
+        final ScrollView scrollView = new ScrollView(activity);
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(60, 40, 60, 40);
-        SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+        // 设置更大的左右边距和上下边距
+        layout.setPadding(70, 50, 70, 50);
+        scrollView.addView(layout);
 
-        SwitchCompat swLatex = new SwitchCompat(activity);
-        swLatex.setText("启用 LaTeX 高质量渲染");
+        SharedPreferences prefs = activity.getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+        float density = activity.getResources().getDisplayMetrics().density;
+
+        // --- 1. 渲染总开关 ---
+        androidx.appcompat.widget.SwitchCompat swLatex = new androidx.appcompat.widget.SwitchCompat(activity);
+        swLatex.setText("启用 MathJax 高质量渲染");
+        swLatex.setTextSize(16);
+        // 增加开关的垂直间距
+        swLatex.setPadding(0, 20, 0, 20);
         swLatex.setChecked(prefs.getBoolean("use_latex_mode", false));
         layout.addView(swLatex);
 
-        final TextView tvMulTitle = new TextView(activity);
-        tvMulTitle.setText("\n乘法符号显示模式:");
-        layout.addView(tvMulTitle);
-        final android.widget.RadioGroup rgMul = new android.widget.RadioGroup(activity);
-        String[] mulOptions = {"乘法写作 ×", "乘法写作 •", "乘法写作 • (遇括号省略)"};
-        int currentMulMode = prefs.getInt("latex_mul_mode", 1);
-        for (int i = 0; i < 3; i++) {
-            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i); rb.setText(mulOptions[i]); rgMul.addView(rb);
-            if (currentMulMode == i) rb.setChecked(true);
-        }
-        layout.addView(rgMul);
+        // 分隔线 (带有较大的上下外边距)
+        View divider = new View(activity);
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(-1, (int)(1.5 * density));
+        divLp.setMargins(0, 30, 0, 40);
+        divider.setLayoutParams(divLp);
+        divider.setBackgroundColor(android.graphics.Color.LTGRAY);
+        layout.addView(divider);
 
-        final TextView tvDivTitle = new TextView(activity);
-        tvDivTitle.setText("\n除法符号显示模式:");
-        layout.addView(tvDivTitle);
-        final android.widget.RadioGroup rgDiv = new android.widget.RadioGroup(activity);
-        String[] divOptions = {"仅除法运算写作 分数线", "除法与分数均写作 分数线", "除法运算写作 ÷"};
-        int currentDivMode = prefs.getInt("latex_div_mode", 0);
-        for (int i = 0; i < 3; i++) {
-            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i + 10); rb.setText(divOptions[i]); rgDiv.addView(rb);
-            if (currentDivMode == i) rb.setChecked(true);
-        }
-        layout.addView(rgDiv);
+        // --- 2. 乘法符号 ---
+        TextView tvMul = new TextView(activity);
+        tvMul.setText("✖️ 乘法符号显示风格");
+        tvMul.setTypeface(null, android.graphics.Typeface.BOLD); // 加粗
+        tvMul.setTextSize(15);
+        layout.addView(tvMul);
 
-        final TextView tvLongPressTitle = new TextView(activity);
-        tvLongPressTitle.setText("\n长按 LaTeX 公式行为:");
-        layout.addView(tvLongPressTitle);
-        final android.widget.RadioGroup rgLongPress = new android.widget.RadioGroup(activity);
-        String[] lpOptions = {"复制 LaTeX 代码", "复制计算式文本", "保持原生 MathJax 行为"};
-        int currentLPMode = prefs.getInt("latex_long_press_mode", 0);
-        for (int i = 0; i < 3; i++) {
-            android.widget.RadioButton rb = new android.widget.RadioButton(activity);
-            rb.setId(i + 20); rb.setText(lpOptions[i]); rgLongPress.addView(rb);
-            if (currentLPMode == i) rb.setChecked(true);
-        }
-        layout.addView(rgLongPress);
+        Spinner spMul = new Spinner(activity);
+        spMul.setPadding(0, 20, 0, 30); // 增加下方间距
+        String[] mulOptions = {"使用叉号 (×)", "使用点号 (•)", "智能省略 (点号/括号)"};
+        ArrayAdapter<String> mulAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, mulOptions);
+        mulAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spMul.setAdapter(mulAdapter);
+        spMul.setSelection(prefs.getInt("latex_mul_mode", 1));
+        layout.addView(spMul);
 
-        // 核心修复：updateVisibility 只定义一次
-        final Runnable updateVisibility = () -> {
+        // 增加组间距
+        View space1 = new View(activity);
+        layout.addView(space1, new LinearLayout.LayoutParams(-1, (int)(25 * density)));
+
+        // --- 3. 除法符号 ---
+        TextView tvDiv = new TextView(activity);
+        tvDiv.setText("➗ 除法/分数显示风格");
+        tvDiv.setTypeface(null, android.graphics.Typeface.BOLD); // 加粗
+        tvDiv.setTextSize(15);
+        layout.addView(tvDiv);
+
+        Spinner spDiv = new Spinner(activity);
+        spDiv.setPadding(0, 20, 0, 30);
+        String[] divOptions = {"仅除法使用分数线", "除法与分数均使用分数线", "保持传统除号 (÷)"};
+        ArrayAdapter<String> divAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, divOptions);
+        divAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spDiv.setAdapter(divAdapter);
+        spDiv.setSelection(prefs.getInt("latex_div_mode", 0));
+        layout.addView(spDiv);
+
+        // 增加组间距
+        View space2 = new View(activity);
+        layout.addView(space2, new LinearLayout.LayoutParams(-1, (int)(25 * density)));
+
+        // --- 4. 交互行为 ---
+        TextView tvLP = new TextView(activity);
+        tvLP.setText("🖱️ 公式长按交互行为");
+        tvLP.setTypeface(null, android.graphics.Typeface.BOLD); // 加粗
+        tvLP.setTextSize(15);
+        layout.addView(tvLP);
+
+        Spinner spLP = new Spinner(activity);
+        spLP.setPadding(0, 20, 0, 20);
+        String[] lpOptions = {"复制 LaTeX 源码", "复制纯文本算式", "MathJax 原生菜单"};
+        ArrayAdapter<String> lpAdapter = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, lpOptions);
+        lpAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spLP.setAdapter(lpAdapter);
+        spLP.setSelection(prefs.getInt("latex_long_press_mode", 0));
+        layout.addView(spLP);
+
+        // --- 逻辑绑定 ---
+        Runnable updateAlpha = () -> {
             boolean enabled = swLatex.isChecked();
-            float alpha = enabled ? 1.0f : 0.3f;
-            tvMulTitle.setAlpha(alpha); tvDivTitle.setAlpha(alpha); tvLongPressTitle.setAlpha(alpha);
-            for(int i=0; i<rgMul.getChildCount(); i++) rgMul.getChildAt(i).setEnabled(enabled);
-            for(int i=0; i<rgDiv.getChildCount(); i++) rgDiv.getChildAt(i).setEnabled(enabled);
-            for(int i=0; i<rgLongPress.getChildCount(); i++) rgLongPress.getChildAt(i).setEnabled(enabled);
+            float alpha = enabled ? 1.0f : 0.35f;
+            tvMul.setAlpha(alpha); spMul.setEnabled(enabled); spMul.setAlpha(alpha);
+            tvDiv.setAlpha(alpha); spDiv.setEnabled(enabled); spDiv.setAlpha(alpha);
+            tvLP.setAlpha(alpha);  spLP.setEnabled(enabled);  spLP.setAlpha(alpha);
         };
 
         swLatex.setOnCheckedChangeListener((v, c) -> {
             prefs.edit().putBoolean("use_latex_mode", c).apply();
-            updateVisibility.run();
+            updateAlpha.run();
             if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
         });
-        rgMul.setOnCheckedChangeListener((g, id) -> {
-            prefs.edit().putInt("latex_mul_mode", id).apply();
-            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
-        });
-        rgDiv.setOnCheckedChangeListener((g, id) -> {
-            prefs.edit().putInt("latex_div_mode", id - 10).apply();
-            if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
-        });
-        rgLongPress.setOnCheckedChangeListener((g, id) -> prefs.edit().putInt("latex_long_press_mode", id - 20).apply());
 
-        updateVisibility.run();
-        builder.setView(layout).setPositiveButton("确定", null).create().show();
+        spMul.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (prefs.getInt("latex_mul_mode", -1) != pos) {
+                    prefs.edit().putInt("latex_mul_mode", pos).apply();
+                    if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> p) {}
+        });
+
+        spDiv.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (prefs.getInt("latex_div_mode", -1) != pos) {
+                    prefs.edit().putInt("latex_div_mode", pos).apply();
+                    if (activity instanceof MainActivity) ((MainActivity) activity).updateDisplay("", null, false);
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> p) {}
+        });
+
+        spLP.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                prefs.edit().putInt("latex_long_press_mode", pos).apply();
+            }
+            @Override public void onNothingSelected(AdapterView<?> p) {}
+        });
+
+        updateAlpha.run();
+        builder.setView(scrollView);
+        builder.setPositiveButton("完成", null);
+        builder.create().show();
     }
 
 
@@ -686,7 +865,7 @@ public class SidebarLogic {
             if (itemText == null) return;
 
             // 1. 处理返回上一级
-            if (itemText.equals(".. (返回上一级)")) {
+            if (itemText.equals("🔙 返回上一级")) {
                 String temp = currentExplorerPath.substring(0, currentExplorerPath.length() - 1);
                 int lastSlash = temp.lastIndexOf('/');
                 if (lastSlash != -1) {
@@ -752,19 +931,18 @@ public class SidebarLogic {
     // SidebarLogic.java
 
     private void showScrollingDocsDialog(List<String> docNames, int startIndex, java.util.Map<String, String> shaMap) {
-        AlertDialog.Builder b = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
+        // 1. 直接创建 Dialog 对象，使用系统自带的无状态栏全屏主题
+        final android.app.Dialog docDialog = new android.app.Dialog(activity, android.R.style.Theme_NoTitleBar_Fullscreen);
 
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFFFFFFF);
+        // 2. 使用 FrameLayout 作为容器
+        android.widget.FrameLayout root = new android.widget.FrameLayout(activity);
+        root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        // 显式设置根布局为铺满
+        root.setLayoutParams(new android.view.ViewGroup.LayoutParams(-1, -1));
 
-        Button btnClose = new Button(activity);
-        btnClose.setText("✕ 关闭阅读 (左右滑动切换上一篇/下一篇)");
-        btnClose.setBackgroundColor(0x10000000);
-        root.addView(btnClose);
-
+        // 3. ViewPager2 铺满全屏
         ViewPager2 viewPager = new ViewPager2(activity);
-        viewPager.setLayoutParams(new LinearLayout.LayoutParams(-1, -1));
+        viewPager.setLayoutParams(new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         viewPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             @Override
@@ -784,15 +962,12 @@ public class SidebarLogic {
                 WebView wv = (WebView) holder.itemView;
                 String fileName = docNames.get(position);
                 String path = currentExplorerPath + fileName;
-                // 核心修复：从传入的 shaMap 中获取当前文件的 SHA
                 String remoteSha = (shaMap != null) ? shaMap.get(fileName) : null;
 
                 new Thread(() -> {
                     try {
                         String content;
-                        // 判定逻辑：如果是本地模式，或在线模式且无需更新
                         boolean needsUpdate = !isExploringLocal && remoteSha != null && repository.needsUpdate(path, remoteSha);
-
                         if (isExploringLocal || (!needsUpdate && repository.isFileDownloaded(path))) {
                             java.io.File file = new java.io.File(activity.getFilesDir(), path);
                             java.io.FileInputStream fis = new java.io.FileInputStream(file);
@@ -801,28 +976,61 @@ public class SidebarLogic {
                             content = new String(data, "UTF-8");
                         } else {
                             content = repository.downloadRawText(path);
-                            // 传入 remoteSha 以便保存更新标记
                             saveDocToLocal(path, content, remoteSha);
                         }
                         String html = MarkdownUtils.renderMarkdown(content);
                         activity.runOnUiThread(() -> wv.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null));
                     } catch (Exception e) {
-                        activity.runOnUiThread(() -> wv.loadData("<html><body>文档加载失败</body></html>", "text/html", "UTF-8"));
+                        activity.runOnUiThread(() -> wv.loadData("<html><body>加载失败</body></html>", "text/html", "UTF-8"));
                     }
                 }).start();
             }
-
-            @Override
-            public int getItemCount() { return docNames.size(); }
+            @Override public int getItemCount() { return docNames.size(); }
         });
 
-        viewPager.setCurrentItem(startIndex, false);
+        // 4. 创建半透明悬浮关闭按钮
+//        Button btnClose = new Button(activity);
+//        btnClose.setText("✕");
+//        btnClose.setTextSize(18);
+//        btnClose.setTextColor(0xFFFFFFFF);
+//        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+//        shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+//        shape.setColor(0x66000000);
+//        btnClose.setBackground(shape);
+
+        float d = activity.getResources().getDisplayMetrics().density;
+        android.widget.FrameLayout.LayoutParams btnParams = new android.widget.FrameLayout.LayoutParams((int)(40*d), (int)(40*d));
+        btnParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        btnParams.topMargin = (int)(20 * d);
+        btnParams.rightMargin = (int)(20 * d);
+
+        // 5. 将组件加入 root
         root.addView(viewPager);
-        b.setView(root);
-        AlertDialog docDialog = b.create();
-        btnClose.setOnClickListener(v -> docDialog.dismiss());
+//        root.addView(btnClose, btnParams);
+
+        // 6. 设置 Dialog 内容并处理 Window 属性
+        docDialog.setContentView(root);
+//        btnClose.setOnClickListener(v -> docDialog.dismiss());
+
+        if (docDialog.getWindow() != null) {
+            // 强制隐藏状态栏
+            docDialog.getWindow().setFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
+            );
+            // 关键修复：强制设置 Window 宽高为 MATCH_PARENT，并去除背景限制
+            docDialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+            docDialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        }
+
+        viewPager.setCurrentItem(startIndex, false);
         docDialog.show();
+
+        // show 之后再次确认布局大小，适配部分机型
+        docDialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
     }
+
+
 
 
     // 辅助递归删除（放在 SidebarLogic 类末尾即可）
@@ -900,7 +1108,7 @@ public class SidebarLogic {
 
         if (currentExplorerPath.contains("/") && currentExplorerPath.length() > 6) {
             // 这里的 6 是为了避开 "data/" 或 "files/"
-            items.add(0, ".. (返回上一级)");
+            items.add(0, "🔙 返回上一级");
         }
 
         List<String> sortedFolders = new ArrayList<>(folders);
@@ -1013,10 +1221,6 @@ public class SidebarLogic {
     // ==========================================
     //  其他固定对话框 (保持不变)
     // ==========================================
-    // 请保留 showModeSettingsDialog, showThemeSelectionDialog, showHelpDialog, showCalculatorDialog 等方法
-    // (代码略，与上文一致)
-
-    // [Restored] showModeSettingsDialog
     private void showModeSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         LayoutInflater inflater = activity.getLayoutInflater();
@@ -1100,7 +1304,7 @@ public class SidebarLogic {
 
         updateVisibility.run();
 
-        builder.setTitle("模式设定")
+        builder.setTitle("⚙️ 游戏模式设定")
                 .setPositiveButton("确定", (dialog, id) -> {
                     gameModeSettings.avoidPureAddSub = switchAvoidAddSub.isChecked();
                     gameModeSettings.mustHaveDivision = switchMustHaveDivision.isChecked();
@@ -1274,7 +1478,7 @@ public class SidebarLogic {
     private void performCalculation(String input, boolean limit10, TextView tvResult, Integer modulus, int radix, int target) {
         try {
             // 使用当前选定的进制解析输入
-            List<Fraction> nums = parseInputString(input, radix);
+            List<Fraction> nums = parseInputString(input, modulus, radix);
 
             if (nums.isEmpty()) {
                 tvResult.setText("请输入有效的数字");
@@ -1321,35 +1525,65 @@ public class SidebarLogic {
         }
     }
 
-    private List<Fraction> parseInputString(String input, int radix) throws Exception {
+    private List<Fraction> parseInputString(String input, Integer modulus, int radix) throws Exception {
         List<Fraction> list = new ArrayList<>();
-        // 分隔出所有可能的数字/分数 Token
-        String[] parts = input.split("[^0-9A-Fa-f+\\-*/iIjJ.]+");
+
+        // --- 准备正则表达式：定义当前模式下的有效字符 ---
+        String validCharsRegex;
+        boolean isNormalMode = (modulus == null && radix == 10);
+
+        if (isNormalMode) {
+            // 通常模式有效字符：数字、运算符、点号、AJQK、虚数 i
+            // [^...] 表示“除了这些以外都是分隔符”
+            validCharsRegex = "[^0-9a-zA-Z+\\-*/.]+";
+
+            // --- 执行 AJQK 替换 ---
+            // 匹配独立单词，两边自动留空格防止数字粘连
+            input = input.replaceAll("(?i)\\bA\\b", " 1 ")
+                    .replaceAll("(?i)\\bJ\\b", " 11 ")
+                    .replaceAll("(?i)\\bQ\\b", " 12 ")
+                    .replaceAll("(?i)\\bK\\b", " 13 ");
+        } else if (modulus != null) {
+            // 同余模式：仅数字、运算符、点号有效。严禁任何字母。
+            validCharsRegex = "[^0-9+\\-*/.]+";
+        } else {
+            // 进制模式：数字、该进制允许的字母 (A-F)、运算符、点号有效。虚数 i 无效。
+            validCharsRegex = "[^0-9a-fA-F+\\-*/.]+";
+        }
+
+        // --- 分割字符串 ---
+        String[] parts = input.split(validCharsRegex);
 
         for (String p : parts) {
             p = p.trim();
             if (p.isEmpty()) continue;
 
-            // --- 进制合法性检查逻辑 ---
-            // 移除正负号、分号、虚数单位等干扰字符，只保留数字和 A-F 部分
-            String numericPart = p.replaceAll("[iIjJ+\\-*/().]", "");
+            String pLower = p.toLowerCase();
 
-            for (char c : numericPart.toCharArray()) {
-                // Character.digit 会返回字符在对应进制下的数值，如果字符非法则返回 -1
-                int digitValue = Character.digit(c, radix);
-
-                if (digitValue == -1 || digitValue >= radix) {
-                    // 如果字符不合法，直接抛出异常，会被 performCalculation 的 try-catch 捕获并显示
-                    throw new Exception("数字 '" + p + "' 含有非法字符 '" + c + "' (不属于 " + radix + " 进制)");
+            // --- 模式校验 ---
+            if (!isNormalMode) {
+                // 在同余或进制模式下，如果含有 i/I，报错
+                if (pLower.contains("i")) {
+                    throw new Exception("该模式不支持虚数 (i)");
                 }
             }
-            // -----------------------
 
-            // 校验通过，进行解析
+            // --- 进制合法性深度检查 ---
+            // 移除所有辅助字符（运算符、括号、点号、虚数单位）
+            String numericOnly = p.replaceAll("[iI+\\-*/().]", "");
+            for (char c : numericOnly.toCharArray()) {
+                int digitValue = Character.digit(c, radix);
+                if (digitValue == -1 || digitValue >= radix) {
+                    throw new Exception("字符 '" + c + "' 超出当前 " + radix + " 进制范围");
+                }
+            }
+
+            // 校验通过，调用解析器
             list.add(Fraction.parse(p, radix));
         }
         return list;
     }
+
 
     // 1. 新增：通用的远程文件抓取并打开资源管理器方法
     private void fetchFilesAndShow(String rootDir, String extension) {

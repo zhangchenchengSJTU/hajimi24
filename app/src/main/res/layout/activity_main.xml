@@ -10,10 +10,10 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingTop="50dp"
+        android:paddingTop="16dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="30dp">
+        android:paddingBottom="16dp">
 
         <Button
             android:id="@+id/btn_menu"
@@ -119,6 +119,8 @@
             app:layout_constraintTop_toBottomOf="@+id/grid_cards"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
+
+
 
             <Button android:id="@+id/btn_op_add" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="+" android:textSize="28sp"/>
             <Button android:id="@+id/btn_op_sub" android:textColor="#228B22" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="5dp" android:text="-" android:textSize="28sp"/>

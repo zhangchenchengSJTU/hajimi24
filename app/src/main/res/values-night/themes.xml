@@ -7,4 +7,5 @@
         <item name="fontFamily">@font/app_default_font</item>
     </style>
     <color name="math_text_color">#AA6600</color>
+    <color name="black_and_while">#FFFFFF</color>
 </resources>

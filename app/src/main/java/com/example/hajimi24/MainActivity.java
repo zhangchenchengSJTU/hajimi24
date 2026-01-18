@@ -17,6 +17,7 @@ import android.webkit.WebView;
 import android.webkit.WebSettings;
 import android.webkit.WebViewClient;
 import java.util.Collections;
+import android.content.Intent;
 
 
 
@@ -40,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastShownType = ""; // "", "struct", "answer"
     private String currentLoadedFile = null;
     private DrawerLayout drawerLayout;
+    private int initialCount = 4;
     private TextView tvScore, tvTimer, tvAvgTime, tvMessage;
     private Button[] cardButtons = new Button[5];
     private Button btnAdd, btnSub, btnMul, btnDiv;
@@ -55,6 +57,31 @@ public class MainActivity extends AppCompatActivity {
     private String selectedOperator = null;
     private String currentFileName = "随机休闲(4数)";
     private String lastPlainTextSolution = "";
+    private void checkOverlayPermissionAndStart() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                // 没有权限，引导用户去开启
+                showCustomToast("请开启悬浮窗权限以使用此功能");
+                android.content.Intent intent = new android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName())
+                );
+                startActivityForResult(intent, 1234);
+            } else {
+                startFloatingService();
+            }
+        } else {
+            startFloatingService();
+        }
+    }
+
+    private void startFloatingService() {
+        Intent intent = new Intent(this, FloatingWindowService.class);
+        startService(intent);
+        // 启动后可以最小化主界面
+        moveTaskToBack(true);
+    }
+
     // 在 MainActivity.java 中
 
     public void applyTextWeight(boolean isBold) {
@@ -77,41 +104,67 @@ public class MainActivity extends AppCompatActivity {
         if (tvMessage != null) tvMessage.setTypeface(tf, style);
     }
 
+    private void hideSystemUI() {
+        View decorView = getWindow().getDecorView();
+        int uiOptions = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN;
+
+        decorView.setSystemUiVisibility(uiOptions);
+
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().hide();
+        }
+    }
+
+
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemUI();
+        }
+    }
     private void applySavedLayoutMargin() {
         SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
         int marginTopDp = prefs.getInt("grid_margin_top", 40);
         int messageBottomDp = prefs.getInt("message_margin_bottom", 0);
+        // 新增读取
+        int layoutTopDp = prefs.getInt("layout_padding_top", 50);
+        int layoutBottomDp = prefs.getInt("layout_padding_bottom", 30);
 
         findViewById(R.id.grid_cards).post(() -> {
             float density = getResources().getDisplayMetrics().density;
 
-            // A. 卡片顶部间距
-            View gridCards = findViewById(R.id.grid_cards);
-            if (gridCards != null) {
-                androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) gridCards.getLayoutParams();
-                lp.topMargin = (int) (marginTopDp * density);
-                gridCards.setLayoutParams(lp);
+            // A. 设置整体 Padding (对主 ConstraintLayout)
+            View mainContent = findViewById(R.id.btn_menu).getParent() instanceof View ?
+                    (View)findViewById(R.id.btn_menu).getParent() : null;
+            if (mainContent != null) {
+                int side = (int)(16 * density);
+                mainContent.setPadding(side, (int)(layoutTopDp * density), side, (int)(layoutBottomDp * density));
             }
 
-            // B. 信息区 (tvMessage) 偏移
+            // B. 原有的信息区偏移逻辑
             if (tvMessage != null) {
                 androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp = (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvMessage.getLayoutParams();
                 lp.bottomMargin = (int) (messageBottomDp * density);
                 tvMessage.setLayoutParams(lp);
-                // 确保背景透明，不影响游戏提示
-                tvMessage.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             }
         });
     }
-    private void renderLatexInWebView(WebView wv, String content) {
 
-        // --- 新增：获取当前主题的主文本颜色 ---
+    // 核心修复：更新方法签名，增加 int depth 参数
+    private void renderLatexInWebView(WebView wv, String content, int height) {
+
+        // --- 获取当前主题颜色 (代码保持原样) ---
         android.util.TypedValue typedValue = new android.util.TypedValue();
         getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
         int colorInt = typedValue.data;
-        // 将颜色转换为 CSS 认可的十六进制格式 (例如 #000000 或 #FFFFFF)
         String colorHex = String.format("#%06X", (0xFFFFFF & colorInt));
-        // ------------------------------------
 
         WebSettings settings = wv.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -122,100 +175,76 @@ public class MainActivity extends AppCompatActivity {
         wv.setVisibility(View.VISIBLE);
         wv.setAlpha(0.01f);
 
-        int cfracCount = (content.length() - content.replace("cfrac", "").length()) / 5;
-        String fontSize = (cfracCount >= 2) ? "100%" : "125%";
+        // --- 基于垂直高度的缩放逻辑 ---
+        String fontSize;
+        if (height <= 2) {
+            fontSize = "125%"; // 1:普通文字, 2:简单分数 (如 1/2)
+        } else if (height == 3) {
+            fontSize = "105%"; // 一侧嵌套 (如 1/(2/3))
+        } else if (height == 4) {
+            fontSize = "88%";  // 双侧嵌套 (如 (1/2)/(3/4)) -> 这是你要求的 4
+        } else if (height == 5) {
+            fontSize = "75%";  // 更复杂的层级
+        } else {
+            fontSize = "65%";  // 极限情况
+        }
 
         wv.setBackgroundColor(0);
 
-        // ⚠️ IMPORTANT:
-        // Do NOT escape backslashes.
-        // Only escape HTML special characters.
-        String escaped = content
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
+        adjustWebViewContainerHeight(wv, height);
+
+        String escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 
         String html =
-                "<!DOCTYPE html>" +
-                        "<html>" +
-                        "<head>" +
-                        "<meta charset='UTF-8'>" +
-                        "<style>" +
-                        "  body {" +
-                        "    margin: 0;" +
-                        "    padding: 0;" +
-                        "    display: flex;" +
-                        "    justify-content: center;" +
-                        "    align-items: center;" +
-                        "    height: 100vh;" +
-                        "    background: transparent;" +
-                        "    overflow: hidden;" +
-                        "    /* 1. 默认日间模式颜色：黑色 */" +
-                        "    color: #000000;" +
-                        "  }" +
-                        "  " +
-                        "  /* 2. 核心修改：媒体查询适配夜间模式 */" +
-                        "  @media (prefers-color-scheme: dark) {" +
-                        "    body {" +
-                        "      /* 夜间模式颜色：淡黄色 (LightYellow) */" +
-                        "      color: #FFFFE0;" +
-                        "    }" +
-                        "  }" +
-                        "  " +
-                        "  #math {" +
-                        "    font-size: " + fontSize + ";" +
-                        "    text-align: center;" +
-                        "    width: 100%;" +
-                        "  }" +
-                        "</style>" +
-
-                        "<script>" +
-                        "  window.MathJax = {" +
-                        "    tex: {" +
-                        "      inlineMath: [['$', '$']]," +
-                        "      displayMath: [['$$', '$$']]" +
-                        "    }," +
-                        "    svg: { fontCache: 'global' }," +
-                        "    startup: {" +
-                        "      ready: () => {" +
-                        "        MathJax.startup.defaultReady();" +
-                        "        MathJax.startup.promise.then(() => {" +
-                        "          window.android.onRenderFinished();" +
-                        "        });" +
-                        "      }" +
-                        "    }" +
-                        "  };" +
-                        "</script>" +
-
-                        // do NOT use async
-                        "<script id='MathJax-script' src='file:///android_asset/mathjax/tex-svg.js'></script>" +
-                        "</head>" +
-
-                        "<body>" +
-                        "  <div id='math'>$$\\displaystyle " + escaped + "$$</div>" +
-                        "</body>" +
-                        "</html>";
+                "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+                        "<style>body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
+                        "height: 100vh; background: transparent; overflow: hidden; color: #000000; } " +
+                        "@media (prefers-color-scheme: dark) { body { color: #FFFFE0; } } " +
+                        "#math { font-size: " + fontSize + "; text-align: center; width: 100%; }</style>" +
+                        "<script>window.MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] }, " +
+                        "svg: { fontCache: 'global' }, startup: { ready: () => { MathJax.startup.defaultReady(); " +
+                        "MathJax.startup.promise.then(() => { window.android.onRenderFinished(); }); } } };</script>" +
+                        "<script id='MathJax-script' src='file:///android_asset/mathjax/tex-svg.js'></script></head>" +
+                        "<body><div id='math'>$$\\displaystyle " + escaped + "$$</div></body></html>";
 
         wv.addJavascriptInterface(new Object() {
             @android.webkit.JavascriptInterface
             public void onRenderFinished() {
-                wv.post(() ->
-                        wv.animate().alpha(1.0f).setDuration(100).start()
-                );
+                wv.post(() -> wv.animate().alpha(1.0f).setDuration(100).start());
             }
         }, "android");
 
-        wv.loadDataWithBaseURL(
-                "file:///android_asset/mathjax/",
-                html,
-                "text/html",
-                "UTF-8",
-                null
-        );
+        wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
     }
 
 
+    private void adjustWebViewContainerHeight(WebView wv, int formulaHeight) {
+        float density = getResources().getDisplayMetrics().density;
+        int baseHeightDp = 100;
+        int extraHeightPerUnit = 32;
 
+        // 1. 先计算出临时的高度
+        int calculatedHeight;
+        if (formulaHeight <= 2) {
+            calculatedHeight = baseHeightDp;
+        } else {
+            calculatedHeight = baseHeightDp + (formulaHeight - 2) * extraHeightPerUnit;
+        }
+
+        // 2. 【关键修复】：定义一个全新的 final 变量，并赋予最终值（包括 Math.min 限制）
+        // 这样这个变量在初始化后就不会再变，符合 Lambda 的要求
+        final int finalTotalHeight = Math.min(calculatedHeight, 300);
+
+        // 3. 在 Lambda 中引用这个 final 变量
+        wv.post(() -> {
+            android.view.ViewGroup.LayoutParams params = wv.getLayoutParams();
+            if (params != null) {
+                // 使用 finalTotalHeight
+                params.height = (int) (finalTotalHeight * density);
+                wv.setLayoutParams(params);
+            }
+        });
+    }
 
 
     // 3. 新增：带自定义高度的提示方法 (用于替换原来的 Toast)
@@ -278,9 +307,30 @@ public class MainActivity extends AppCompatActivity {
         int themeMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         AppCompatDelegate.setDefaultNightMode(themeMode);
         super.onCreate(savedInstanceState);
+
+        // --- 核心修复 1：在加载布局前，彻底锁定全屏与透明状态栏 ---
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT); // 状态栏设为透明
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        );
+
+        // --- 核心修复：立即执行全屏锁定 ---
+        hideSystemUI();
+
         setContentView(R.layout.activity_main);
         repository = new ProblemRepository(this);
         gameManager = new GameManager();
+
+        // --- 修改点：判断是新开始还是从旋转中恢复 ---
+        if (savedInstanceState != null) {
+            gameStartTime = savedInstanceState.getLong("gameStartTime");
+        } else {
+            gameStartTime = System.currentTimeMillis();
+        }
+        // ----------------------------------------
+
         initViews();
         initHelpers();
         initListeners();
@@ -288,6 +338,25 @@ public class MainActivity extends AppCompatActivity {
         switchToRandomMode(4);
         applySavedLayoutMargin();
         applyTextWeight(prefs.getBoolean("use_bold_text", false));
+        if (prefs.getBoolean("reopen_layout_dialog", false)) {
+            prefs.edit().putBoolean("reopen_layout_dialog", false).apply();
+            // 延迟一小会儿弹出，等待 Activity 界面绘制完成
+            new android.os.Handler().postDelayed(() -> {
+                if (sidebarLogic != null) sidebarLogic.showLayoutAdjustmentDialog();
+            }, 200);
+        }
+
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 确保从设置界面返回或切回应用时，全屏依然生效
+        hideSystemUI();
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
     }
     private void updateMenuButtonText(String rawName) {
         // 1. 去掉 .txt 后缀
@@ -323,6 +392,19 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onLoadProblems(List<Problem> problems, String title) {
+                if (isLandscape()) {
+                    List<Problem> filtered = new ArrayList<>();
+                    for (Problem p : problems) {
+                        // 【修正】：使用 p.numbers
+                        if (p.numbers != null && p.numbers.size() == 4) filtered.add(p);
+                    }
+                    problems = filtered;
+                    if (problems.isEmpty()) {
+                        showCustomToast("横屏仅支持 4 数题目");
+                        switchToRandomMode(4);
+                        return;
+                    }
+                }
                 gameManager.setProblemSet(problems);
                 currentFileName = title; // 存完整路径用于刷新
                 updateMenuButtonText(title); // 内部会自动处理路径和换行
@@ -348,9 +430,12 @@ public class MainActivity extends AppCompatActivity {
         });
         sidebarLogic.setup();
         gameTimer = new GameTimer(() -> {
-            if (tvTimer != null) tvTimer.setText(gameTimer.getElapsedSeconds() + "s");
-            updateScoreBoard();
+            if (tvTimer != null) {
+                tvTimer.setText(gameTimer.getElapsedSeconds() + "s");
+            }
+            updateScoreBoard(); // 这里会用到 gameStartTime
         });
+        gameTimer.start();
     }
 
     private void initViews() {
@@ -367,43 +452,73 @@ public class MainActivity extends AppCompatActivity {
         btnMenu.setMaxLines(2);
     }
 
+    // 修改 loadProblemSet 方法
     public void loadProblemSet(String fileName) {
         try {
             List<Problem> problems = repository.loadProblemSet(fileName, sidebarLogic.getGameModeSettings());
+
+            // --- 新增横屏过滤逻辑 ---
+            if (isLandscape()) {
+                List<Problem> filtered = new ArrayList<>();
+                for (Problem p : problems) {
+                    // 【修正】：使用 p.numbers
+                    if (p.numbers != null && p.numbers.size() == 4) {
+                        filtered.add(p);
+                    }
+                }
+                problems = filtered;
+                if (problems.isEmpty()) {
+                    showCustomToast("该题库无 4 数题目，已切换至随机模式");
+                    switchToRandomMode(4);
+                    return;
+                }
+            }
+            // -----------------------
+
             gameManager.setProblemSet(problems);
             currentFileName = fileName;
-            updateMenuButtonText(fileName); // 使用统一样式更新
-
+            updateMenuButtonText(fileName);
             showCustomToast("加载成功!");
             startNewGameLocal();
-        } catch (Exception e) { e.printStackTrace(); switchToRandomMode(4); }
+        } catch (Exception e) {
+            e.printStackTrace();
+            switchToRandomMode(4);
+        }
     }
-
 
 
     public void switchToRandomMode(int count) {
+        if (isLandscape()) {
+            count = 4; // 横屏模式强制锁定 4 个数字
+        }
         gameManager.currentNumberCount = count;
         currentFileName = "随机休闲(" + count + "数)";
-        updateMenuButtonText(currentFileName); // 使用统一样式更新
+        updateMenuButtonText(currentFileName);
         startNewGameLocal();
     }
-
-
     private void startNewGameLocal() {
         gameManager.startNewGame(currentFileName.startsWith("随机休闲"));
+        // 【新增】：记录本局初始卡片数量，用于固定布局
+        initialCount = gameManager.currentNumberCount;
+
         if (gameTimer != null) gameTimer.start();
         resetSelection();
         refreshUI();
-        // 核心修改：使用 updateDisplay 清理两个显示组件，并重置状态
         updateDisplay("", null, false);
         lastShownType = "";
         lastPlainTextSolution = "";
     }
-
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putLong("gameStartTime", gameStartTime);
+    }
     private void refreshUI() {
         if (gameManager == null || cardButtons == null) return;
 
-        // 获取当前的模数和进制
+        SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+        int baseMarginTopDp = prefs.getInt("grid_margin_top", 40);
+
         Integer modulus = null;
         int currentRadix = 10;
         Problem p = gameManager.getCurrentProblem();
@@ -412,28 +527,80 @@ public class MainActivity extends AppCompatActivity {
             if (p.radix != null) currentRadix = p.radix;
         }
 
-        int count = gameManager.currentNumberCount;
-        for (int i = 0; i < 5; i++) {
-            if (cardButtons[i] == null) continue;
-            if (i >= count) {
-                cardButtons[i].setVisibility(View.GONE);
+        int count = initialCount;
+        float density = getResources().getDisplayMetrics().density;
+        int btnSize = (int) (110 * density);
+        int margin = (int) (5 * density);
+
+        View gridView = findViewById(R.id.grid_cards);
+        if (gridView != null) {
+            androidx.constraintlayout.widget.ConstraintLayout.LayoutParams gridLp =
+                    (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) gridView.getLayoutParams();
+
+            // 修正：这里仅处理整体边距，不计算 row/col
+            if (isLandscape()) {
+                gridLp.topMargin = (int) (10 * density); // 横屏只需要很小的顶边距
             } else {
+                // 竖屏保持原样
+                if (count <= 4) {
+                    gridLp.topMargin = (int) ((baseMarginTopDp + 120) * density);
+                } else {
+                    gridLp.topMargin = (int) (baseMarginTopDp * density);
+                }
+            }
+            gridView.setLayoutParams(gridLp);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            Button btn = cardButtons[i];
+            if (btn == null) continue;
+
+            if (i >= count) {
+                btn.setVisibility(View.GONE);
+            } else {
+                int row, col;
+                // 【核心修正】：坐标计算必须在循环内，且根据横竖屏调整
+                if (count == 3) {
+                    if (i == 0) { row = 0; col = 0; } // 3个数在横屏建议 1+2 布局
+                    else { row = 1; col = i - 1; }
+                } else if (count == 4) {
+                    row = i / 2; // 直接使用 0, 1 行，不要加 1
+                    col = i % 2;
+                } else {
+                    // 5个数
+                    if (i == 0) { row = 0; col = 0; }
+                    else { row = (i - 1) / 2 + 1; col = (i - 1) % 2; }
+                }
+
+                // --- 【核心修复：锁定位置，防止位移】 ---
+                // 1. 在 spec 中指定对齐方式为 CENTER
+                android.widget.GridLayout.Spec rowSpec = android.widget.GridLayout.spec(row, android.widget.GridLayout.CENTER);
+                android.widget.GridLayout.Spec colSpec = android.widget.GridLayout.spec(col, android.widget.GridLayout.CENTER);
+
+                android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams(rowSpec, colSpec);
+
+                // 2. 显式设置 LayoutParams 的 gravity
+                lp.setGravity(android.view.Gravity.CENTER);
+
+                lp.width = btnSize;
+                lp.height = btnSize;
+                lp.setMargins(margin, margin, margin, margin);
+                btn.setLayoutParams(lp);
+
                 Fraction f = gameManager.cardValues[i];
                 if (f != null) {
-                    cardButtons[i].setVisibility(View.VISIBLE);
+                    btn.setVisibility(View.VISIBLE);
+                    String text = (modulus != null) ? f.toModString(modulus, currentRadix) : f.toString(currentRadix);
+                    btn.setText(text);
 
-                    // 核心修改：确保调用带 radix 参数的方法，防止 A-F 被转换回数字
-                    String text;
-                    if (modulus != null) {
-                        text = f.toModString(modulus, currentRadix);
+                    // 保持您之前的选中变绿逻辑
+                    if (i == selectedFirstIndex) {
+                        btn.setBackgroundColor(Color.GREEN);
                     } else {
-                        text = f.toString(currentRadix);
+                        btn.setBackgroundColor(Color.parseColor("#CCCCCC"));
                     }
-                    cardButtons[i].setText(text);
-
-                    cardButtons[i].setBackgroundColor(Color.parseColor("#CCCCCC"));
                 } else {
-                    cardButtons[i].setVisibility(View.INVISIBLE);
+                    btn.setVisibility(View.INVISIBLE);
                 }
             }
         }
@@ -441,6 +608,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        boolean wasRunning = gameTimer != null;
+
+        // 1. 重新加载布局（系统会自动根据当前横竖屏选择 layout 或 layout-land 文件夹下的 xml）
+        setContentView(R.layout.activity_main);
+
+        // 2. 因为布局重新加载了，必须重新初始化所有 View 引用和监听器
+        initViews();
+
+        initHelpers();
+        initListeners();
+        applySavedLayoutMargin(); // 应用您之前的边距设置
+
+        // 3. 【核心逻辑】：
+        // 如果当前题目正好是 4 个数，直接刷新 UI 显示当前进度，不开始新游戏
+        if (gameManager.currentNumberCount == 4) {
+            refreshUI();
+        } else {
+            // 如果当前是 3 或 5 个数（横屏不支持），则强制刷新到随机 4 数
+            if (newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                switchToRandomMode(4);
+            } else {
+                refreshUI(); // 竖屏则直接显示
+            }
+        }
+        refreshUI();
+    }
 
     private void onCardClicked(int index) {
         if (gameManager == null) return;
@@ -451,12 +648,24 @@ public class MainActivity extends AppCompatActivity {
             else {
                 try {
                     if (gameManager.performCalculation(selectedFirstIndex, index, selectedOperator)) {
-                        resetSelection(); refreshUI(); selectCard(index); checkWin();
+                        // --- 修改开始 ---
+                        // 计算成功后，将选中目标指向“结果”所在的卡片索引
+                        selectedFirstIndex = index;
+                        selectedOperator = null; // 清除选中的运算符
+                        resetOpColors();         // 恢复运算符按钮颜色
+
+                        refreshUI();             // 刷新界面，此时 refreshUI 会根据新的 selectedFirstIndex 涂绿
+                        checkWin();
+                        // --- 修改结束 ---
                     }
-                } catch (ArithmeticException e) { showCustomToast("除数不能为 0!"); }
+                } catch (ArithmeticException e) {
+                    showCustomToast("除数不能为 0!");
+                    resetSelection();
+                }
             }
         }
     }
+
 
     private void checkWin() {
         if (gameManager != null && gameManager.checkWin()) {
@@ -491,38 +700,49 @@ public class MainActivity extends AppCompatActivity {
         List<Fraction> currentNums = getCurrentNumbers();
         if (currentNums.isEmpty()) return null;
 
-        // --- 核心优化 1：预排序输入数字 ---
-        // 这能保证 DFS 搜索的起始路径是确定的，并且倾向于先处理数值较小的组合
-        Collections.sort(currentNums, (a, b) -> {
-            // 按数字的字符串表示排序，确保 A-F 等进制也能稳定排序
-            return a.toString().compareTo(b.toString());
-        });
-
+        // 1. 获取当前环境参数 (模数、进制、目标值)
         Integer modulus = null;
+        int radix = 10;
         int targetValue = 24;
-
         Problem p = gameManager.getCurrentProblem();
         if (p != null) {
             modulus = p.modulus;
             if (p.radix != null) {
-                targetValue = 2 * p.radix + 4;
+                radix = p.radix;
+                targetValue = 2 * radix + 4;
             }
         }
 
-        // --- 核心优化 2：仅求取第一个解 ---
-        // 使用 Solver.solve 找到第一个可行解即返回，在 5 个数的情况下性能极高（毫秒级）
-        String singleSolution = Solver.solve(currentNums, modulus, targetValue);
+        // 2. 【关键修复】：由 solve 改为 solveAll，获取该数字组合的所有可行解
+        // 对于 4-5 个数字，Solver.solveAll 在移动端的性能通常在 100ms 以内
+        List<String> allRawSolutions = Solver.solveAll(currentNums, modulus, targetValue);
+        if (allRawSolutions.isEmpty()) return null;
 
-        if (singleSolution == null) return null;
+        // 3. 构造模式后缀 (例如 " mod 13" 或 " base 12")
+        // 这样可以让 Normalizer 识别出上下文，并返回与题库格式一致的规范化字符串
+        String suffix = "";
+        if (modulus != null) {
+            suffix = " mod " + modulus;
+        } else if (radix != 10) {
+            suffix = " base " + radix;
+        }
 
-        // --- 核心优化 3：对这一个解进行 AST 规范化 ---
-        // 将结果包装成 List 传给 Normalizer，它会利用交换律将式子调整为“字典序最小”的形态
-        // 例如：将 (8+2)*(3-1) 自动修正为 (1-3)*(2+8) 等字典序更前的形式（取决于 Normalizer 逻辑）
-        List<String> wrapper = new ArrayList<>();
-        wrapper.add(singleSolution);
-        List<String> normalized = SolutionNormalizer.distinct(wrapper);
+        List<String> candidates = new ArrayList<>();
+        for (String s : allRawSolutions) {
+            candidates.add(s + suffix);
+        }
 
-        return normalized.get(0);
+        // 4. 调用 SolutionNormalizer 进行去重和择优
+        // 它会基于 AST 识别出 (3+1)*6 和 6*(1+3) 是同一个解，并保留最短的一个
+        List<String> distinctSolutions = SolutionNormalizer.distinct(candidates);
+
+        // 5. 最终排序：从过滤后的解中选出最优解（最短、字典序最小）
+        Collections.sort(distinctSolutions, (s1, s2) -> {
+            if (s1.length() != s2.length()) return Integer.compare(s1.length(), s2.length());
+            return s1.compareTo(s2);
+        });
+
+        return distinctSolutions.get(0);
     }
 
 
@@ -536,63 +756,87 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initListeners() {
-        // 侧边栏菜单
-        if (btnMenu != null) btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+        // 1. 获取侧边栏视图
+        NavigationView navView = findViewById(R.id.nav_view);
+        if (navView != null) {
+            // 2. 获取 HeaderView (索引通常为 0)
+            View headerView = navView.getHeaderView(0);
+            if (headerView != null) {
+                // 3. 找到 Header 里的图标
+                View logoIcon = headerView.findViewById(R.id.imageView);
+                if (logoIcon != null) {
+                    // 4. 设置长按监听器
+                    logoIcon.setOnLongClickListener(v -> {
+                        checkOverlayPermissionAndStart(); // 调用您之前的权限检查逻辑
+                        // 开启后自动关闭侧边栏，体验更好
+                        if (drawerLayout != null) {
+                            drawerLayout.closeDrawer(GravityCompat.START);
+                        }
+                        return true;
+                    });
+                }
+            }
+        }
 
-        WebView wvMath = findViewById(R.id.wv_math_message);
-        if (wvMath != null) {
-            wvMath.setOnLongClickListener(v -> {
-                SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
-                int mode = prefs.getInt("latex_long_press_mode", 0);
+            // 侧边栏菜单
+            if (btnMenu != null)
+                btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
 
-                if (mode == 2) return false; // 模式 2：保持原生，不拦截
+            WebView wvMath = findViewById(R.id.wv_math_message);
+            if (wvMath != null) {
+                wvMath.setOnLongClickListener(v -> {
+                    SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+                    int mode = prefs.getInt("latex_long_press_mode", 0);
 
-                String textToCopy;
-                if (mode == 0) {
-                    // --- 核心优化：直接剥离 \text{...} 结构 ---
-                    textToCopy = currentLatexCode;
-                    if (textToCopy != null) {
-                        // 使用正则表达式匹配 \text{内容} 并替换为 内容
-                        // \\\\text\\{  -> 匹配 \text{
-                        // ([^{}]*)      -> 捕获组：匹配不含大括号的内容（即最内层文本）
-                        // \\}           -> 匹配结尾的 }
-                        // 使用循环确保处理所有嵌套可能（虽然本应用中通常只有一层）
-                        String lastResult;
-                        do {
-                            lastResult = textToCopy;
-                            textToCopy = textToCopy.replaceAll("\\\\text\\{([^{}]*)\\}", "$1");
-                        } while (!textToCopy.equals(lastResult));
+                    if (mode == 2) return false; // 模式 2：保持原生，不拦截
 
-                        textToCopy = textToCopy.trim();
+                    String textToCopy;
+                    if (mode == 0) {
+                        // --- 核心优化：直接剥离 \text{...} 结构 ---
+                        textToCopy = currentLatexCode;
+                        if (textToCopy != null) {
+                            // 使用正则表达式匹配 \text{内容} 并替换为 内容
+                            // \\\\text\\{  -> 匹配 \text{
+                            // ([^{}]*)      -> 捕获组：匹配不含大括号的内容（即最内层文本）
+                            // \\}           -> 匹配结尾的 }
+                            // 使用循环确保处理所有嵌套可能（虽然本应用中通常只有一层）
+                            String lastResult;
+                            do {
+                                lastResult = textToCopy;
+                                textToCopy = textToCopy.replaceAll("\\\\text\\{([^{}]*)\\}", "$1");
+                            } while (!textToCopy.equals(lastResult));
+
+                            textToCopy = textToCopy.trim();
+                        }
+                    } else {
+                        textToCopy = currentPlainTextForLatex;
                     }
-                } else {
-                    textToCopy = currentPlainTextForLatex;
-                }
 
-                if (textToCopy != null && !textToCopy.isEmpty()) {
+                    if (textToCopy != null && !textToCopy.isEmpty()) {
+                        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        ClipData clip = ClipData.newPlainText("Hajimi24-LaTeX", textToCopy);
+                        clipboard.setPrimaryClip(clip);
+                        showCustomToast("已复制" + (mode == 0 ? " LaTeX 代码" : "计算式文本"));
+                    }
+                    return true; // 拦截事件，防止弹出原生菜单
+                });
+            }
+
+            // 消息区域长按复制
+            if (tvMessage != null) {
+                tvMessage.setOnLongClickListener(v -> {
+                    String textToCopy = lastPlainTextSolution;
+                    if (textToCopy == null || textToCopy.isEmpty())
+                        textToCopy = tvMessage.getText().toString();
+                    if (textToCopy.isEmpty()) return true;
+
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("Hajimi24-LaTeX", textToCopy);
+                    ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
                     clipboard.setPrimaryClip(clip);
-                    showCustomToast("已复制" + (mode == 0 ? " LaTeX 代码" : "计算式文本"));
-                }
-                return true; // 拦截事件，防止弹出原生菜单
-            });
-        }
-
-        // 消息区域长按复制
-        if (tvMessage != null) {
-            tvMessage.setOnLongClickListener(v -> {
-                String textToCopy = lastPlainTextSolution;
-                if (textToCopy == null || textToCopy.isEmpty()) textToCopy = tvMessage.getText().toString();
-                if (textToCopy.isEmpty()) return true;
-
-                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
-                clipboard.setPrimaryClip(clip);
-                showCustomToast("已复制到剪贴板");
-                return true;
-            });
-        }
+                    showCustomToast("已复制到剪贴板");
+                    return true;
+                });
+            }
 
         // 卡片按钮点击
         if (cardButtons != null) {
@@ -657,7 +901,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnTry != null) btnTry.setOnClickListener(v -> {
             String sol = getFreshSolution();
             if (sol == null) {
-                if (tvMessage != null) tvMessage.setText("无解");
+                updateDisplay("无解", null, false); // 使用统一方法清空公式并显示无解
                 return;
             }
 
@@ -802,9 +1046,14 @@ public class MainActivity extends AppCompatActivity {
         if (useLatex) {
             tvMessage.setVisibility(View.GONE);
 
-            // --- 核心修复：传入 mulMode 和 divMode 参数 ---
+            // 1. 生成最终的 LaTeX 字符串
             String latexBody = ExpressionHelper.getAsLatex(rawSolution, getCurrentNumbers(), isStructure, mulMode, divMode);
-            // --------------------------------------------
+
+            // 2. 【核心修改】判断生成的字符串中 \cfrac 的深度
+            int depth = ExpressionHelper.getLatexHeight(latexBody);
+
+            // 3. 传入 depth 进行渲染
+            renderLatexInWebView(wvMath, latexBody, depth);
 
             // --- 新增：保存用于复制的文本 ---
             currentLatexCode = latexBody;
@@ -813,7 +1062,7 @@ public class MainActivity extends AppCompatActivity {
                     ExpressionHelper.getAnswerAsPlainText(rawSolution, getCurrentNumbers());
             // ---------------------------
 
-            renderLatexInWebView(wvMath, latexBody);
+            renderLatexInWebView(wvMath, latexBody, depth);
         } else {
             // 普通模式逻辑保持不变
             wvMath.setVisibility(View.GONE);
@@ -826,6 +1075,5 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
 
 }

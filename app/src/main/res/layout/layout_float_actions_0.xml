@@ -1,0 +1,20 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content" android:layout_height="wrap_content"
+    android:background="#CC111111" android:orientation="vertical" android:padding="2dp">
+    <View android:id="@+id/handle" android:layout_width="match_parent" android:layout_height="14dp" android:background="#FF8844"/>
+    <android.webkit.WebView android:id="@+id/wv_math_message" android:layout_width="330dp" android:layout_height="60dp" android:visibility="gone"/>
+    <GridLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:columnCount="6" android:rowCount="2">
+        <Button android:id="@+id/btn_undo" android:text="撤" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_reset" android:text="重" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_hint_struct" android:text="构" android:layout_width="55dp" android:layout_height="45dp" android:textColor="#FFCC00"/>
+        <Button android:id="@+id/btn_answer" android:text="解" android:layout_width="55dp" android:layout_height="45dp" android:textColor="#FF4444"/>
+        <Button android:id="@+id/btn_share" android:text="享" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_skip" android:text="跳" android:layout_width="55dp" android:layout_height="45dp" android:textColor="#228B22"/>
+        <Button android:id="@+id/btn_rotate" android:text="转" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_exit" android:text="关" android:layout_width="55dp" android:layout_height="45dp" android:textColor="#CC0000"/>
+        <Button android:id="@+id/btn_problems" android:text="题" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_calculator" android:text="算" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_settings" android:text="设" android:layout_width="55dp" android:layout_height="45dp"/>
+        <Button android:id="@+id/btn_home" android:text="喵" android:layout_width="55dp" android:layout_height="45dp" android:textColor="#FFAA00"/>
+    </GridLayout>
+</LinearLayout>
