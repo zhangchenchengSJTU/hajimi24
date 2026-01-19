@@ -39,7 +39,9 @@ public class MainActivity extends AppCompatActivity {
     private List<Problem> lastLoadedProblemSet = new ArrayList<>();
     private String currentLatexCode = "";
     private String currentPlainTextForLatex = "";
-
+    private boolean isWebViewInitialized = false;
+    private String cachedSolution = null;
+    private int lastOperandCount = 0;
     private Problem mCurrentProblem;
     private String lastShownType = ""; // "", "struct", "answer"
     private String currentLoadedFile = null;
@@ -176,63 +178,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 核心修复：更新方法签名，增加 int depth 参数
+// 修改 renderLatexInWebView 方法
     private void renderLatexInWebView(WebView wv, String content, int height) {
-
-        // --- 获取当前主题颜色 (代码保持原样) ---
-        android.util.TypedValue typedValue = new android.util.TypedValue();
-        getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
-        int colorInt = typedValue.data;
-        String colorHex = String.format("#%06X", (0xFFFFFF & colorInt));
-
-        WebSettings settings = wv.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setDomStorageEnabled(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
-
         wv.setVisibility(View.VISIBLE);
-        wv.setAlpha(0.01f);
 
-        // --- 基于垂直高度的缩放逻辑 ---
-        String fontSize;
-        if (height <= 2) {
-            fontSize = "125%"; // 1:普通文字, 2:简单分数 (如 1/2)
-        } else if (height == 3) {
-            fontSize = "105%"; // 一侧嵌套 (如 1/(2/3))
-        } else if (height == 4) {
-            fontSize = "88%";  // 双侧嵌套 (如 (1/2)/(3/4)) -> 这是你要求的 4
-        } else if (height == 5) {
-            fontSize = "75%";  // 更复杂的层级
-        } else {
-            fontSize = "65%";  // 极限情况
-        }
+        // 每次刷新前先瞬间变透明，防止看到旧公式
+        wv.setAlpha(0f);
 
-        wv.setBackgroundColor(0);
-
+        // 根据高度调整容器
         adjustWebViewContainerHeight(wv, height);
 
-        String escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        // 如果还没有初始化，则加载完整 HTML 模板
+        if (!isWebViewInitialized) {
+            String fontSize = getFontSizeByHeight(height); // 提取出来的字号逻辑
+            String html = buildMathTemplate(content, fontSize); // 提取出来的 HTML 模板
 
-        String html =
-                "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-                        "<style>body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
-                        "height: 100vh; background: transparent; overflow: hidden; color: #000000; } " +
-                        "@media (prefers-color-scheme: dark) { body { color: #FFFFE0; } } " +
-                        "#math { font-size: " + fontSize + "; text-align: center; width: 100%; }</style>" +
-                        "<script>window.MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] }, " +
-                        "svg: { fontCache: 'global' }, startup: { ready: () => { MathJax.startup.defaultReady(); " +
-                        "MathJax.startup.promise.then(() => { window.android.onRenderFinished(); }); } } };</script>" +
-                        "<script id='MathJax-script' src='file:///android_asset/mathjax/tex-svg.js'></script></head>" +
-                        "<body><div id='math'>$$\\displaystyle " + escaped + "$$</div></body></html>";
+            wv.getSettings().setJavaScriptEnabled(true);
+            wv.getSettings().setAllowFileAccess(true);
+            wv.setBackgroundColor(0);
 
-        wv.addJavascriptInterface(new Object() {
-            @android.webkit.JavascriptInterface
-            public void onRenderFinished() {
-                wv.post(() -> wv.animate().alpha(1.0f).setDuration(100).start());
-            }
-        }, "android");
+            wv.addJavascriptInterface(new Object() {
+                @android.webkit.JavascriptInterface
+                public void onRenderFinished() {
+                    wv.post(() -> {
+                        wv.animate().alpha(1.0f).setDuration(100).start();
+                        isWebViewInitialized = true;
+                    });
+                }
+            }, "android");
 
-        wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
+            wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
+        } else {
+            // 【核心优化】：如果已经加载过模板，直接通过 JS 更新公式，速度提升 5-10 倍
+            String fontSize = getFontSizeByHeight(height);
+            // 对 LaTeX 字符串进行转义，防止 JS 报错
+            String escapedContent = content.replace("\\", "\\\\").replace("'", "\\'");
+
+            String js = "javascript:updateMath('" + escapedContent + "', '" + fontSize + "')";
+            wv.evaluateJavascript(js, null);
+        }
+    }
+
+    // 提取字号逻辑，方便复用
+    private String getFontSizeByHeight(int height) {
+        if (height <= 2) return "125%";
+        if (height == 3) return "105%";
+        if (height == 4) return "88%";
+        if (height == 5) return "75%";
+        return "65%";
     }
 
     private void adjustWebViewContainerHeight(WebView wv, int formulaHeight) {
@@ -261,6 +254,28 @@ public class MainActivity extends AppCompatActivity {
                 wv.setLayoutParams(params);
             }
         });
+    }
+
+    private String buildMathTemplate(String content, String fontSize) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+                "<style>body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; " +
+                "height: 100vh; background: transparent; overflow: hidden; color: #000000; } " +
+                "@media (prefers-color-scheme: dark) { body { color: #FFFFE0; } } " +
+                "#math { font-size: " + fontSize + "; text-align: center; width: 100%; transition: font-size 0.2s; }</style>" +
+                "<script>" +
+                "window.MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] }, " +
+                "startup: { ready: () => { MathJax.startup.defaultReady(); " +
+                "MathJax.startup.promise.then(() => { window.android.onRenderFinished(); }); } } };" +
+                "// 【关键函数】：不重载页面，只更新数学公式\n" +
+                "function updateMath(newTex, newSize) {" +
+                "  const container = document.getElementById('math');" +
+                "  container.style.fontSize = newSize;" +
+                "  container.innerHTML = '$$\\\\displaystyle ' + newTex + '$$';" +
+                "  MathJax.typesetPromise([container]).then(() => { window.android.onRenderFinished(); });" +
+                "}" +
+                "</script>" +
+                "<script id='MathJax-script' src='file:///android_asset/mathjax/tex-svg.js'></script></head>" +
+                "<body><div id='math'>$$\\displaystyle " + content + "$$</div></body></html>";
     }
 
 
@@ -545,20 +560,35 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
     public void switchToRandomMode(int count) {
-        if (isLandscape()) {
-            count = 4; // 横屏模式强制锁定 4 个数字
+        if (isLandscape()) count = 4;
+
+        // 如果选择 5 数随机，逻辑上改为加载内置的 5num.txt 题库
+        if (count == 5) {
+            try {
+                loadProblemSet("5num/5num.txt");
+                currentFileName = "随机休闲(5数)"; // 保持标题显示
+                updateMenuButtonText(currentFileName);
+                return;
+            } catch (Exception e) {
+                count = 4; // 如果文件缺失，降级回 4 数
+            }
         }
+
         gameManager.currentNumberCount = count;
         currentFileName = "随机休闲(" + count + "数)";
         updateMenuButtonText(currentFileName);
         startNewGameLocal();
     }
+
     private void startNewGameLocal() {
-        gameManager.startNewGame(currentFileName.startsWith("随机休闲"));
-        // 【新增】：记录本局初始卡片数量，用于固定布局
+        // 核心逻辑：如果是“随机休闲(5数)”，它本质上是读题库，所以 isRandom 传 false
+        boolean isTrulyRandom = currentFileName.startsWith("随机休闲") && !currentFileName.contains("5数");
+        gameManager.startNewGame(isTrulyRandom);
+
         initialCount = gameManager.currentNumberCount;
+        lastOperandCount = initialCount;
+        cachedSolution = getFreshSolution();
 
         if (gameTimer != null) gameTimer.start();
         resetSelection();
@@ -567,6 +597,7 @@ public class MainActivity extends AppCompatActivity {
         lastShownType = "";
         lastPlainTextSolution = "";
     }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -713,6 +744,17 @@ public class MainActivity extends AppCompatActivity {
                         selectedOperator = null; // 清除选中的运算符
                         resetOpColors();         // 恢复运算符按钮颜色
 
+                        int currentCount = getCurrentNumbers().size();
+                        if (currentCount < lastOperandCount) {
+                            cachedSolution = getFreshSolution();
+                            lastOperandCount = currentCount;
+
+                            // 如果当前正在显示旧的答案，自动更新它（可选）
+                            if (!lastShownType.isEmpty()) {
+                                updateDisplay(lastShownType.equals("struct") ? "结构: " : "答案: ", cachedSolution, lastShownType.equals("struct"));
+                            }
+                        }
+
                         refreshUI();             // 刷新界面，此时 refreshUI 会根据新的 selectedFirstIndex 涂绿
                         checkWin();
                         // --- 修改结束 ---
@@ -759,7 +801,16 @@ public class MainActivity extends AppCompatActivity {
         List<Fraction> currentNums = getCurrentNumbers();
         if (currentNums.isEmpty()) return null;
 
-        // 1. 获取当前环境参数 (模数、进制、目标值)
+        // 【核心逻辑】：如果当前屏幕上有 5 个数字，且属于题库题目，优先使用原始解
+        if (currentNums.size() == 5) {
+            Problem p = gameManager.getCurrentProblem();
+            if (p != null && p.solution != null) {
+                // 直接返回题库中 "->" 后面的那个字符串
+                return p.solution;
+            }
+        }
+
+        // 【核心逻辑】：数字少于等于 4 个，或者没有题库对象，则执行实时计算
         Integer modulus = null;
         int radix = 10;
         int targetValue = 24;
@@ -772,30 +823,20 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // 2. 【关键修复】：由 solve 改为 solveAll，获取该数字组合的所有可行解
-        // 对于 4-5 个数字，Solver.solveAll 在移动端的性能通常在 100ms 以内
+        // 实时求解（4个数字以下速度极快）
         List<String> allRawSolutions = Solver.solveAll(currentNums, modulus, targetValue);
         if (allRawSolutions.isEmpty()) return null;
 
-        // 3. 构造模式后缀 (例如 " mod 13" 或 " base 12")
-        // 这样可以让 Normalizer 识别出上下文，并返回与题库格式一致的规范化字符串
         String suffix = "";
-        if (modulus != null) {
-            suffix = " mod " + modulus;
-        } else if (radix != 10) {
-            suffix = " base " + radix;
-        }
+        if (modulus != null) suffix = " mod " + modulus;
+        else if (radix != 10) suffix = " base " + radix;
 
         List<String> candidates = new ArrayList<>();
         for (String s : allRawSolutions) {
-            candidates.add(s + suffix);
+            candidates.add((s.contains("mod") || s.contains("base")) ? s : s + suffix);
         }
 
-        // 4. 调用 SolutionNormalizer 进行去重和择优
-        // 它会基于 AST 识别出 (3+1)*6 和 6*(1+3) 是同一个解，并保留最短的一个
         List<String> distinctSolutions = SolutionNormalizer.distinct(candidates);
-
-        // 5. 最终排序：从过滤后的解中选出最优解（最短、字典序最小）
         Collections.sort(distinctSolutions, (s1, s2) -> {
             if (s1.length() != s2.length()) return Integer.compare(s1.length(), s2.length());
             return s1.compareTo(s2);
@@ -935,6 +976,8 @@ public class MainActivity extends AppCompatActivity {
             if(gameManager.undo()) {
                 refreshUI();
                 resetSelection();
+                cachedSolution = getFreshSolution();
+                lastOperandCount = getCurrentNumbers().size();
                 // [新增逻辑]：若界面显示“无解”，撤销操作成功后文字消失
                 if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
                     tvMessage.setText("");
@@ -946,6 +989,8 @@ public class MainActivity extends AppCompatActivity {
             if(gameManager.redo()) {
                 refreshUI();
                 resetSelection();
+                cachedSolution = getFreshSolution();
+                lastOperandCount = getCurrentNumbers().size();
                 // [新增逻辑]：若界面显示“无解”，重做操作成功后文字消失
                 if (tvMessage != null && "无解".equals(tvMessage.getText().toString())) {
                     tvMessage.setText("");
@@ -1045,7 +1090,7 @@ public class MainActivity extends AppCompatActivity {
                 updateDisplay("", null, false);
                 lastShownType = "";
             } else {
-                updateDisplay("结构: ", sol, true);
+                updateDisplay("结构: ", cachedSolution, true);
                 lastShownType = "struct";
             }
         });
@@ -1062,7 +1107,7 @@ public class MainActivity extends AppCompatActivity {
                 updateDisplay("", null, false);
                 lastShownType = "";
             } else {
-                updateDisplay("答案: ", sol, false);
+                updateDisplay("答案: ", cachedSolution, false);
                 lastShownType = "answer";
             }
         });

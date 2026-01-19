@@ -134,22 +134,25 @@ public class ExpressionHelper {
         }
     }
 
+
     public static String getAsLatex(String expression, List<Fraction> numbers, boolean isStructureMode, int mulMode, int divMode) {
         if (expression == null) return "";
 
-        // --- 【核心修复：强力去重逻辑】 ---
-        String suffix = "";
-        // 1. 使用忽略大小写的正则，只匹配第一个 (mod/base + 数字)
+        String suffixLatex = "";
+        // 1. 匹配并提取后缀关键词和数字
         Pattern pSuffix = Pattern.compile("(?i)(mod|base)\\s*(\\d+)");
         Matcher mSuffix = pSuffix.matcher(expression);
         if (mSuffix.find()) {
-            // 强制格式化为单份后缀，例如 "mod 73"
-            suffix = mSuffix.group(1).toLowerCase() + " " + mSuffix.group(2);
+            String keyword = mSuffix.group(1).toLowerCase(); // mod 或 base
+            String value = mSuffix.group(2);                // 数字
+
+            // 【核心修改】：使用 \operatorname 替换 \text
+            // 结果形如：\operatorname{mod} 73
+            suffixLatex = "\\operatorname{" + keyword + "} " + value;
         }
 
-        // 2. 彻底剥离原始字符串中所有的 mod/base 相关内容，得到纯净的数学表达式
+        // 2. 清洗原始表达式，移除所有后缀内容
         String cleanExpr = expression.replaceAll("(?i)\\s*(mod|base)\\s*\\d+.*", "").trim();
-        // -------------------------------
 
         try {
             Map<String, String> placeholderMap = new HashMap<>();
@@ -157,12 +160,17 @@ public class ExpressionHelper {
             Node root = parse(placeholderExpression);
             String latex = root.toLatex(placeholderMap, isStructureMode, 0, false, mulMode, divMode);
 
-            if (!suffix.isEmpty()) {
-                latex += " \\quad \\left(\\text{" + suffix + "}\\right)";
+            // 3. 拼接带括号的算子后缀
+            if (!suffixLatex.isEmpty()) {
+                // 输出结果形如： \quad \left(\operatorname{mod} 73\right)
+                latex += " \\quad \\left(" + suffixLatex + "\\right)";
             }
             return latex;
-        } catch (Exception e) { return ""; }
+        } catch (Exception e) {
+            return "";
+        }
     }
+
 
     public static Spanned formatAnswer(String expression, List<Fraction> numbers) { return format(expression, numbers, false); }
     public static Spanned formatStructure(String expression, List<Fraction> numbers) { return format(expression, numbers, true); }

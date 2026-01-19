@@ -7,11 +7,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.Menu;
-import android.view.MenuItem;
 import android.webkit.WebView;
 import android.webkit.WebSettings;
-import android.database.DatabaseUtils; // 如果后续需要更复杂的转义
-import android.webkit.WebView;
 import android.view.SubMenu;
 import android.view.View;
 import android.widget.AdapterView;
@@ -23,7 +20,6 @@ import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -42,8 +38,6 @@ import java.util.Set;
 import java.util.HashSet;
 import androidx.viewpager2.widget.ViewPager2;
 import androidx.recyclerview.widget.RecyclerView;
-import android.view.ViewGroup;
-
 
 
 public class SidebarLogic {
