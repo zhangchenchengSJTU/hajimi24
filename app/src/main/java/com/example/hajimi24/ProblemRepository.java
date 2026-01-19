@@ -482,7 +482,7 @@ public class ProblemRepository {
         return numbers;
     }
 
-    private Problem parseLineToProblem(String line) {
+    public Problem parseLineToProblem(String line) {
         try {
             String[] parts = line.split("->");
             if (parts.length < 2) return null;

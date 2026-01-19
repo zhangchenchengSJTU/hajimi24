@@ -629,9 +629,9 @@ public class SidebarLogic {
 
         // --- 第四组：快速开始 ---
         SubMenu randomGroup = menu.addSubMenu(getStyledTitle("随机模式 / RANDOM"));
-        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣  随机休闲 (3数)");
-        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣  随机休闲 (4数)");
-        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣  随机休闲 (5数)");
+        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣ 随机休闲 (3数)");
+        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣ 随机休闲 (4数)");
+        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣ 随机休闲 (5数)");
     }
 
     /**

@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "2.1"
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -46,9 +46,6 @@ dependencies {
     androidTestImplementation(libs.espresso.core)
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0") // 请检查最新版本
 }
-
-
-
 tasks.register("generateFloatLayouts") {
     group = "custom"
     doLast {
@@ -63,53 +60,51 @@ tasks.register("generateFloatLayouts") {
 
                 angles.forEach { angle ->
                     var content = originalContent
-
-                    // 1. 文字旋转：给所有 Button 和 WebView 注入 rotation
-                    content = content.replace("<Button ", "<Button android:rotation=\"$angle\" ")
-                    content = content.replace("<android.webkit.WebView ", "<android.webkit.WebView android:rotation=\"$angle\" ")
-
-                    if (angle == 90 || angle == 270) {
-                        // 2. 交换外层布局方向
-                        content = content.replace("android:orientation=\"vertical\"", "android:orientation=\"horizontal\"")
-
-                        // 3. 交换 GridLayout 的行列
-                        val colRegex = Regex("""android:columnCount="(\d+)"""")
-                        val rowRegex = Regex("""android:rowCount="(\d+)"""")
-                        val colVal = colRegex.find(content)?.groupValues?.get(1) ?: "1"
-                        val rowVal = rowRegex.find(content)?.groupValues?.get(1) ?: "1"
-                        content = content.replaceFirst(colRegex, "android:columnCount=\"$rowVal\"")
-                        content = content.replaceFirst(rowRegex, "android:rowCount=\"$colVal\"")
-
-                        // 4. 【核心修复】不使用复杂正则，直接分两步强制替换 Handle 的宽和高
-                        // 第一步：先标记 Handle 这一行，防止误伤其他 View
-                        content = content.replace("android:id=\"@+id/handle\"", "android:id=\"@+id/handle\" FLAG_ROTATED=\"true\"")
-
-                        // 第二步：如果一行包含标记，则执行宽高的绝对值替换
-                        val lines = content.split("\n").map { line ->
-                            if (line.contains("android:id=\"@+id/handle\"") && line.contains("FLAG_ROTATED=\"true\"")) {
-                                line.replace(Regex("""android:layout_width="[^"]+""""), "android:layout_width=\"14dp\"")
-                                    .replace(Regex("""android:layout_height="[^"]+""""), "android:layout_height=\"match_parent\"")
-                                    .replace(" FLAG_ROTATED=\"true\"", "")
-                            } else {
-                                line
-                            }
-                        }
-                        content = lines.joinToString("\n")
-
-                        // 5. 修正工具窗 WebView 的比例
-                        content = content.replace("android:layout_width=\"330dp\"", "android:layout_width=\"60dp\"")
-                        content = content.replace("android:layout_height=\"60dp\"", "android:layout_height=\"330dp\"")
+                    // 1. 仅给 Button 注入旋转，WebView 保持 0 度（靠 CSS 旋转内部文字）
+                    content = content.replace(Regex("""<Button(\s+)""")) {
+                        "<Button android:rotation=\"$angle\"${it.groupValues[1]}"
                     }
 
-                    val outputFile = File(resPath, "${base}_${angle}.xml")
-                    outputFile.writeText(content)
+                    if (angle == 90 || angle == 270) {
+                        content = content.replace("android:orientation=\"vertical\"", "android:orientation=\"horizontal\"")
+
+                        // 2. 交换 GridLayout 行列 (处理 8 按钮的 4x2 -> 2x4)
+                        val colRegex = Regex("""android:columnCount="(\d+)"""")
+                        val rowRegex = Regex("""android:rowCount="(\d+)"""")
+                        val cols = colRegex.find(content)?.groupValues?.get(1) ?: "1"
+                        val rows = rowRegex.find(content)?.groupValues?.get(1) ?: "1"
+                        content = content.replaceFirst(colRegex, "android:columnCount=\"$rows\"")
+                        content = content.replaceFirst(rowRegex, "android:rowCount=\"$cols\"")
+
+                        // 3. 对调所有组件的宽高数值
+                        val lines = content.split(Regex("""\r?\n""")).map { line ->
+                            var l = line
+                            if (l.contains("id=\"@+id/handle\"")) {
+                                l = l.replace(Regex("""android:layout_width="[^"]+""""), "android:layout_width=\"14dp\"")
+                                l = l.replace(Regex("""android:layout_height="[^"]+""""), "android:layout_height=\"match_parent\"")
+                            } else if (l.contains("<Button") || l.contains("WebView")) {
+                                val wM = Regex("""android:layout_width="(\d+)dp"""").find(l)
+                                val hM = Regex("""android:layout_height="(\d+)dp"""").find(l)
+                                if (wM != null && hM != null) {
+                                    val w = wM.groupValues[1]; val h = hM.groupValues[1]
+                                    l = l.replace("android:layout_width=\"${w}dp\"", "android:layout_width=\"TEMP_W\"")
+                                    l = l.replace("android:layout_height=\"${h}dp\"", "android:layout_height=\"${w}dp\"")
+                                    l = l.replace("android:layout_width=\"TEMP_W\"", "android:layout_width=\"${h}dp\"")
+                                }
+                                if (!l.contains("android:layout_margin")) {
+                                    l = l.replaceFirst(" ", " android:layout_margin=\"2dp\" ")
+                                }
+                            }
+                            l
+                        }
+                        content = lines.joinToString("\n")
+                    }
+                    File(resPath, "${base}_${angle}.xml").writeText(content)
                 }
             }
         }
     }
 }
-
-
 
 
 // 依然挂载到 preBuild

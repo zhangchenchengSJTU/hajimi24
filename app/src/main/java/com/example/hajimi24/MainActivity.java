@@ -33,7 +33,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
-
+    public static Problem sharedProblem = null;
+    public static List<Problem> sharedProblemSet = null;
+    public static boolean sharedIsRandomMode = true;
+    private List<Problem> lastLoadedProblemSet = new ArrayList<>();
     private String currentLatexCode = "";
     private String currentPlainTextForLatex = "";
 
@@ -77,8 +80,23 @@ public class MainActivity extends AppCompatActivity {
 
     private void startFloatingService() {
         Intent intent = new Intent(this, FloatingWindowService.class);
+
+        // 同步模式
+        sharedIsRandomMode = currentFileName.startsWith("随机休闲");
+
+        // 同步题目对象：如果是随机题目，手动包装，确保 Service 能拿到数字
+        Problem current = gameManager.getCurrentProblem();
+        if (current == null) {
+            List<Fraction> nums = new ArrayList<>();
+            for (Fraction f : gameManager.initialValues) if (f != null) nums.add(f);
+            current = new Problem(nums, gameManager.currentLevelSolution, gameManager.getRawProblemLine(), null, 10);
+        }
+        sharedProblem = current;
+
+        // 同步整个题库（如果是题库模式）
+        sharedProblemSet = sharedIsRandomMode ? null : lastLoadedProblemSet;
+
         startService(intent);
-        // 启动后可以最小化主界面
         moveTaskToBack(true);
     }
 
@@ -217,7 +235,6 @@ public class MainActivity extends AppCompatActivity {
         wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
     }
 
-
     private void adjustWebViewContainerHeight(WebView wv, int formulaHeight) {
         float density = getResources().getDisplayMetrics().density;
         int baseHeightDp = 100;
@@ -348,12 +365,52 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+// MainActivity.java
+
     @Override
     protected void onResume() {
         super.onResume();
-        // 确保从设置界面返回或切回应用时，全屏依然生效
         hideSystemUI();
+
+        if (sharedProblem != null) {
+            try {
+                // 【核心修复 1】：获取传回题目的实际数字个数 (通常是 4)
+                int incomingCount = sharedProblem.numbers.size();
+
+                // 【核心修复 2】：强制同步 MainActivity 的布局计数器
+                this.initialCount = incomingCount;
+                this.gameManager.currentNumberCount = incomingCount;
+
+                // 【核心修复 3】：如果是从 5 数降级回来的随机模式，修正模式名称
+                // 防止回到主界面点“跳过”又跳回 5 数模式
+                if (incomingCount == 4 && sharedIsRandomMode) {
+                    this.currentFileName = "随机休闲(4数)";
+                    updateMenuButtonText(this.currentFileName);
+                }
+
+                // 1. 锁定当前这道题目
+                List<Problem> single = new ArrayList<>();
+                single.add(sharedProblem);
+                gameManager.setProblemSet(single);
+                gameManager.startNewGame(false); // 加载这道特定题
+
+                // 2. 恢复完整题库列表
+                if (!sharedIsRandomMode && sharedProblemSet != null) {
+                    this.lastLoadedProblemSet = sharedProblemSet;
+                    gameManager.setProblemSet(sharedProblemSet);
+                }
+
+                // 3. 彻底重绘 UI
+                resetSelection();
+                refreshUI(); // 这一步会根据新的 initialCount 重新计算 2x2 还是 2x3 布局
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            sharedProblem = null; // 消费掉
+        }
     }
+
 
     private boolean isLandscape() {
         return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
@@ -395,7 +452,6 @@ public class MainActivity extends AppCompatActivity {
                 if (isLandscape()) {
                     List<Problem> filtered = new ArrayList<>();
                     for (Problem p : problems) {
-                        // 【修正】：使用 p.numbers
                         if (p.numbers != null && p.numbers.size() == 4) filtered.add(p);
                     }
                     problems = filtered;
@@ -405,9 +461,12 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                 }
+                // 【核心修复】：明确指向外部类的变量
+                MainActivity.this.lastLoadedProblemSet = problems;
+
                 gameManager.setProblemSet(problems);
-                currentFileName = title; // 存完整路径用于刷新
-                updateMenuButtonText(title); // 内部会自动处理路径和换行
+                currentFileName = title;
+                updateMenuButtonText(title);
                 showCustomToast("加载成功!");
                 startNewGameLocal();
             }
@@ -474,7 +533,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             // -----------------------
-
+            this.lastLoadedProblemSet = problems;
             gameManager.setProblemSet(problems);
             currentFileName = fileName;
             updateMenuButtonText(fileName);
@@ -777,66 +836,74 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }
+        if (tvTimer != null) {
+            tvTimer.setOnLongClickListener(v -> {
+                if (gameTimer != null) {
+                    gameTimer.reset(); // 重置计时器内部时间
+                    showCustomToast("计时已清零");
+                }
+                return true; // 返回 true 表示消费了长按事件，不触发短按
+            });
+        }
+        // 侧边栏菜单
+        if (btnMenu != null)
+            btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
 
-            // 侧边栏菜单
-            if (btnMenu != null)
-                btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+        WebView wvMath = findViewById(R.id.wv_math_message);
+        if (wvMath != null) {
+            wvMath.setOnLongClickListener(v -> {
+                SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
+                int mode = prefs.getInt("latex_long_press_mode", 0);
 
-            WebView wvMath = findViewById(R.id.wv_math_message);
-            if (wvMath != null) {
-                wvMath.setOnLongClickListener(v -> {
-                    SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
-                    int mode = prefs.getInt("latex_long_press_mode", 0);
+                if (mode == 2) return false; // 模式 2：保持原生，不拦截
 
-                    if (mode == 2) return false; // 模式 2：保持原生，不拦截
+                String textToCopy;
+                if (mode == 0) {
+                    // --- 核心优化：直接剥离 \text{...} 结构 ---
+                    textToCopy = currentLatexCode;
+                    if (textToCopy != null) {
+                        // 使用正则表达式匹配 \text{内容} 并替换为 内容
+                        // \\\\text\\{  -> 匹配 \text{
+                        // ([^{}]*)      -> 捕获组：匹配不含大括号的内容（即最内层文本）
+                        // \\}           -> 匹配结尾的 }
+                        // 使用循环确保处理所有嵌套可能（虽然本应用中通常只有一层）
+                        String lastResult;
+                        do {
+                            lastResult = textToCopy;
+                            textToCopy = textToCopy.replaceAll("\\\\text\\{([^{}]*)\\}", "$1");
+                        } while (!textToCopy.equals(lastResult));
 
-                    String textToCopy;
-                    if (mode == 0) {
-                        // --- 核心优化：直接剥离 \text{...} 结构 ---
-                        textToCopy = currentLatexCode;
-                        if (textToCopy != null) {
-                            // 使用正则表达式匹配 \text{内容} 并替换为 内容
-                            // \\\\text\\{  -> 匹配 \text{
-                            // ([^{}]*)      -> 捕获组：匹配不含大括号的内容（即最内层文本）
-                            // \\}           -> 匹配结尾的 }
-                            // 使用循环确保处理所有嵌套可能（虽然本应用中通常只有一层）
-                            String lastResult;
-                            do {
-                                lastResult = textToCopy;
-                                textToCopy = textToCopy.replaceAll("\\\\text\\{([^{}]*)\\}", "$1");
-                            } while (!textToCopy.equals(lastResult));
-
-                            textToCopy = textToCopy.trim();
-                        }
-                    } else {
-                        textToCopy = currentPlainTextForLatex;
+                        textToCopy = textToCopy.trim();
                     }
+                } else {
+                    textToCopy = currentPlainTextForLatex;
+                }
 
-                    if (textToCopy != null && !textToCopy.isEmpty()) {
-                        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        ClipData clip = ClipData.newPlainText("Hajimi24-LaTeX", textToCopy);
-                        clipboard.setPrimaryClip(clip);
-                        showCustomToast("已复制" + (mode == 0 ? " LaTeX 代码" : "计算式文本"));
-                    }
-                    return true; // 拦截事件，防止弹出原生菜单
-                });
-            }
-
-            // 消息区域长按复制
-            if (tvMessage != null) {
-                tvMessage.setOnLongClickListener(v -> {
-                    String textToCopy = lastPlainTextSolution;
-                    if (textToCopy == null || textToCopy.isEmpty())
-                        textToCopy = tvMessage.getText().toString();
-                    if (textToCopy.isEmpty()) return true;
-
+                if (textToCopy != null && !textToCopy.isEmpty()) {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
+                    ClipData clip = ClipData.newPlainText("Hajimi24-LaTeX", textToCopy);
                     clipboard.setPrimaryClip(clip);
-                    showCustomToast("已复制到剪贴板");
-                    return true;
-                });
-            }
+                    showCustomToast("已复制" + (mode == 0 ? " LaTeX 代码" : "计算式文本"));
+                }
+                return true; // 拦截事件，防止弹出原生菜单
+            });
+        }
+
+        // 消息区域长按复制
+        if (tvMessage != null) {
+            tvMessage.setOnLongClickListener(v -> {
+                String textToCopy = lastPlainTextSolution;
+                if (textToCopy == null || textToCopy.isEmpty())
+                    textToCopy = tvMessage.getText().toString();
+                if (textToCopy.isEmpty()) return true;
+
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                ClipData clip = ClipData.newPlainText("Hajimi24-Result", textToCopy);
+                clipboard.setPrimaryClip(clip);
+                showCustomToast("已复制到剪贴板");
+                return true;
+            });
+        }
 
         // 卡片按钮点击
         if (cardButtons != null) {

@@ -136,16 +136,30 @@ public class ExpressionHelper {
 
     public static String getAsLatex(String expression, List<Fraction> numbers, boolean isStructureMode, int mulMode, int divMode) {
         if (expression == null) return "";
+
+        // --- 【核心修复：强力去重逻辑】 ---
         String suffix = "";
-        Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
-        Matcher m = p.matcher(expression);
-        if (m.find()) { suffix = m.group().trim(); expression = expression.substring(0, m.start()).trim(); }
+        // 1. 使用忽略大小写的正则，只匹配第一个 (mod/base + 数字)
+        Pattern pSuffix = Pattern.compile("(?i)(mod|base)\\s*(\\d+)");
+        Matcher mSuffix = pSuffix.matcher(expression);
+        if (mSuffix.find()) {
+            // 强制格式化为单份后缀，例如 "mod 73"
+            suffix = mSuffix.group(1).toLowerCase() + " " + mSuffix.group(2);
+        }
+
+        // 2. 彻底剥离原始字符串中所有的 mod/base 相关内容，得到纯净的数学表达式
+        String cleanExpr = expression.replaceAll("(?i)\\s*(mod|base)\\s*\\d+.*", "").trim();
+        // -------------------------------
+
         try {
             Map<String, String> placeholderMap = new HashMap<>();
-            String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
+            String placeholderExpression = createPlaceholders(cleanExpr, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
             String latex = root.toLatex(placeholderMap, isStructureMode, 0, false, mulMode, divMode);
-            if (!suffix.isEmpty()) latex += " \\quad \\left(\\text{" + suffix + "}\\right)";
+
+            if (!suffix.isEmpty()) {
+                latex += " \\quad \\left(\\text{" + suffix + "}\\right)";
+            }
             return latex;
         } catch (Exception e) { return ""; }
     }
@@ -157,18 +171,25 @@ public class ExpressionHelper {
 
     private static Spanned format(String expression, List<Fraction> numbers, boolean isStructureMode) {
         if (expression == null) return Html.fromHtml("", Html.FROM_HTML_MODE_LEGACY);
+
         String suffix = "";
-        Pattern p = Pattern.compile("\\s*(mod|base)\\s*\\d+.*$");
-        Matcher m = p.matcher(expression);
-        if (m.find()) { suffix = m.group().trim(); expression = expression.substring(0, m.start()).trim(); }
+        Pattern pSuffix = Pattern.compile("(?i)(mod|base)\\s*(\\d+)");
+        Matcher mSuffix = pSuffix.matcher(expression);
+        if (mSuffix.find()) {
+            suffix = mSuffix.group(1).toLowerCase() + " " + mSuffix.group(2);
+        }
+        String cleanExpr = expression.replaceAll("(?i)\\s*(mod|base)\\s*\\d+.*", "").trim();
+
         try {
             Map<String, String> placeholderMap = new HashMap<>();
-            String placeholderExpression = createPlaceholders(expression, numbers, placeholderMap);
+            String placeholderExpression = createPlaceholders(cleanExpr, numbers, placeholderMap);
             Node root = parse(placeholderExpression);
             String html = root.toHtml(placeholderMap, isStructureMode);
             if (!suffix.isEmpty()) html += "&nbsp;&nbsp;&nbsp;<b>(" + suffix + ")</b>";
             return Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY);
-        } catch (Exception e) { return Html.fromHtml(expression.replace("*", "×"), Html.FROM_HTML_MODE_LEGACY); }
+        } catch (Exception e) {
+            return Html.fromHtml(expression.replace("*", "×"), Html.FROM_HTML_MODE_LEGACY);
+        }
     }
 
     private static String getPlainText(String expression, List<Fraction> numbers, boolean isStructureMode) {

@@ -1,11 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content" android:layout_height="wrap_content"
     android:background="#CC111111" android:orientation="horizontal" android:padding="2dp">
     <View android:id="@+id/handle" android:layout_width="14dp" android:layout_height="match_parent" android:background="#4488FF"/>
     <GridLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:columnCount="2" android:rowCount="2">
-        <Button android:rotation="270" android:id="@+id/card_1" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp"/>
-        <Button android:rotation="270" android:id="@+id/card_2" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp"/>
-        <Button android:rotation="270" android:id="@+id/card_3" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp"/>
-        <Button android:rotation="270" android:id="@+id/card_4" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp"/>
+        <!-- 添加 app:cornerRadius="0dp" -->
+        <Button android:rotation="270" android:id="@+id/card_1" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp" app:cornerRadius="0dp"/>
+        <Button android:rotation="270" android:id="@+id/card_2" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp" app:cornerRadius="0dp"/>
+        <Button android:rotation="270" android:id="@+id/card_3" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp" app:cornerRadius="0dp"/>
+        <Button android:rotation="270" android:id="@+id/card_4" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="18sp" app:cornerRadius="0dp"/>
     </GridLayout>
 </LinearLayout>

@@ -1,11 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content" android:layout_height="wrap_content"
-    android:background="#CC111111" android:orientation="vertical" android:padding="2dp">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="#CC111111"
+    android:orientation="vertical"
+    android:padding="2dp">
     <View android:id="@+id/handle" android:layout_width="match_parent" android:layout_height="14dp" android:background="#44FF88"/>
     <GridLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:columnCount="2" android:rowCount="2">
-        <Button android:id="@+id/btn_op_add" android:text="+" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="22sp"/>
-        <Button android:id="@+id/btn_op_sub" android:text="-" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="22sp"/>
-        <Button android:id="@+id/btn_op_mul" android:text="×" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="22sp"/>
-        <Button android:id="@+id/btn_op_div" android:text="÷" android:layout_width="70dp" android:layout_height="70dp" android:layout_margin="2dp" android:backgroundTint="#CC666666" android:textColor="#98FB98" android:textSize="22sp"/>
+        <!-- 关键：删掉了 style，添加了 inset 系列属性确保 100% 充满 -->
+        <Button android:id="@+id/btn_op_add"
+            android:text="+"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_margin="2dp"
+            android:backgroundTint="#CC666666"
+            android:textColor="#98FB98"
+            android:textSize="22sp"
+            app:cornerRadius="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"/>
+        <Button android:id="@+id/btn_op_sub"
+            android:text="-"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_margin="2dp"
+            android:backgroundTint="#CC666666"
+            android:textColor="#98FB98"
+            android:textSize="22sp"
+            app:cornerRadius="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"/>
+        <Button android:id="@+id/btn_op_mul"
+            android:text="×"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_margin="2dp"
+            android:backgroundTint="#CC666666"
+            android:textColor="#98FB98"
+            android:textSize="22sp"
+            app:cornerRadius="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"/>
+        <Button android:id="@+id/btn_op_div"
+            android:text="÷"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_margin="2dp"
+            android:backgroundTint="#CC666666"
+            android:textColor="#98FB98"
+            android:textSize="22sp"
+            app:cornerRadius="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"/>
     </GridLayout>
 </LinearLayout>
