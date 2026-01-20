@@ -377,10 +377,10 @@ public class MainActivity extends AppCompatActivity {
                 if (sidebarLogic != null) sidebarLogic.showLayoutAdjustmentDialog();
             }, 200);
         }
-
+        UpdateManager updateManager = new UpdateManager(this);
+        updateManager.checkUpdate();
     }
 
-// MainActivity.java
 
     @Override
     protected void onResume() {

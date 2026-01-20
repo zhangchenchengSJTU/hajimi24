@@ -22,8 +22,9 @@
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml(file_paths)" />
+                android:resource="@xml/file_paths" /> <!-- 确保这里是 @xml/file_paths -->
         </provider>
+
         <service
             android:name=".FloatingWindowService"
             android:enabled="true"
