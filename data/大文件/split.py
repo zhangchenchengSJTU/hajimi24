@@ -59,6 +59,6 @@ def split_file_by_line_count(input_filename, m):
 if __name__ == "__main__":
     # --- 你可以在这里设置变量 ---
     target_line_count = 20000  # 这里就是你令 line = m 的值
-    file_to_split = '四个数-高斯整数-大文件.txt'
+    file_to_split = '五个数-四个分数-大文件.txt'
     
     split_file_by_line_count(file_to_split, target_line_count)
