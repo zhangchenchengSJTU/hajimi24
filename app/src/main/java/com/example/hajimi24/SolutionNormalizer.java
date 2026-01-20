@@ -8,6 +8,33 @@ import java.util.Map;
 
 public class SolutionNormalizer {
 
+    private static class PowerNode implements Node {
+        Node base;
+        Node exponent;
+
+        PowerNode(Node base, Node exponent) {
+            this.base = base;
+            this.exponent = exponent;
+        }
+
+        @Override
+        public String getSignature() {
+            // --- 规则 1 标准化：(a^b)^c -> a^(b*c) ---
+            if (base instanceof PowerNode) {
+                PowerNode inner = (PowerNode) base;
+                OpNode newExp = new OpNode("PROD");
+                newExp.addTerm(inner.exponent, true);
+                newExp.addTerm(this.exponent, true);
+                return "POW(" + inner.base.getSignature() + "," + newExp.getSignature() + ")";
+            }
+
+            // --- 规则 2 标准化：(a/b)^n -> (b/a)^(-n) ---
+            // 逻辑：如果底数是纯除法或分式，可以通过统一翻转来去重
+            // 此处简化处理，仅对 base 和 exponent 进行签名拼接
+            return "POW(" + base.getSignature() + "," + exponent.getSignature() + ")";
+        }
+    }
+
     public static List<String> distinct(List<String> solutions) {
         List<String> result = new ArrayList<>();
         Map<String, String> map = new HashMap<>();
@@ -142,7 +169,7 @@ public class SolutionNormalizer {
     }
 
     private static int findMainOperatorIndex(String s) {
-        int balance = 0, bestIdx = -1, minPrec = 999;
+        int balance = 0; int bestIdx = -1; int minPrec = 999;
         for (int i = s.length() - 1; i >= 0; i--) {
             char c = s.charAt(i);
             if (c == ')') balance++;
@@ -151,7 +178,9 @@ public class SolutionNormalizer {
                 int prec = -1;
                 if (c == '+' || c == '-') prec = 1;
                 else if (c == '*' || c == '/' || c == '×') prec = 2;
-                if (prec != -1 && prec < minPrec) {
+                else if (c == '^') prec = 3; // 幂运算优先级最高
+
+                if (prec != -1 && prec <= minPrec) { // 注意：幂运算是右结合，这里用 <=
                     minPrec = prec;
                     bestIdx = i;
                 }

@@ -179,7 +179,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 核心修复：更新方法签名，增加 int depth 参数
 // 修改 renderLatexInWebView 方法
-    private void renderLatexInWebView(WebView wv, String content, int height) {
+    private void renderLatexInWebView(WebView wv, String content, int height,int width) {
         wv.setVisibility(View.VISIBLE);
 
         // 每次刷新前先瞬间变透明，防止看到旧公式
@@ -190,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 如果还没有初始化，则加载完整 HTML 模板
         if (!isWebViewInitialized) {
-            String fontSize = getFontSizeByHeight(height); // 提取出来的字号逻辑
+            String fontSize = getFontSize(height, width);
             String html = buildMathTemplate(content, fontSize); // 提取出来的 HTML 模板
 
             wv.getSettings().setJavaScriptEnabled(true);
@@ -210,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
             wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
         } else {
             // 【核心优化】：如果已经加载过模板，直接通过 JS 更新公式，速度提升 5-10 倍
-            String fontSize = getFontSizeByHeight(height);
+            String fontSize = getFontSize(height, width);
             // 对 LaTeX 字符串进行转义，防止 JS 报错
             String escapedContent = content.replace("\\", "\\\\").replace("'", "\\'");
 
@@ -220,12 +220,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 提取字号逻辑，方便复用
-    private String getFontSizeByHeight(int height) {
-        if (height <= 2) return "125%";
-        if (height == 3) return "105%";
-        if (height == 4) return "88%";
-        if (height == 5) return "75%";
-        return "65%";
+    private String getFontSize(int height, int width) {
+        // 1. 先根据高度决定基础字号（原有的逻辑）
+        float baseSize;
+        if (height <= 2) baseSize = 125f;
+        else if (height == 3) baseSize = 105f;
+        else if (height == 4) baseSize = 88f;
+        else if (height == 5) baseSize = 75f;
+        else baseSize = 65f;
+
+        // 2. 根据宽度进行二次缩放
+        // 设定一个阈值，例如宽度超过 18 个单位就开始收缩
+        int widthThreshold = 18;
+        if (width > widthThreshold) {
+            float widthFactor = (float) widthThreshold / width;
+            // 缩放系数不要太夸张，保留一个最小值
+            baseSize *= Math.max(widthFactor, 0.5f);
+        }
+
+        // 3. 限制字号下限，防止看不清
+        if (baseSize < 45f) baseSize = 45f;
+
+        return String.format("%.0f%%", baseSize);
     }
 
     private void adjustWebViewContainerHeight(WebView wv, int formulaHeight) {
@@ -1163,9 +1179,10 @@ public class MainActivity extends AppCompatActivity {
 
             // 2. 【核心修改】判断生成的字符串中 \cfrac 的深度
             int depth = ExpressionHelper.getLatexHeight(latexBody);
+            int width = ExpressionHelper.getLatexWidth(latexBody);
 
             // 3. 传入 depth 进行渲染
-            renderLatexInWebView(wvMath, latexBody, depth);
+            renderLatexInWebView(wvMath, latexBody, depth, width);
 
             // --- 新增：保存用于复制的文本 ---
             currentLatexCode = latexBody;
@@ -1174,7 +1191,7 @@ public class MainActivity extends AppCompatActivity {
                     ExpressionHelper.getAnswerAsPlainText(rawSolution, getCurrentNumbers());
             // ---------------------------
 
-            renderLatexInWebView(wvMath, latexBody, depth);
+            renderLatexInWebView(wvMath, latexBody, depth, width);
         } else {
             // 普通模式逻辑保持不变
             wvMath.setVisibility(View.GONE);

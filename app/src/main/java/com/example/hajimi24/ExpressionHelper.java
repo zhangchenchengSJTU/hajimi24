@@ -48,7 +48,7 @@ public class ExpressionHelper {
                 String[] p = val.split("/");
                 result = "\\cfrac{" + p[0] + "}{" + p[1] + "}";
             } else {
-                result = "\\text{" + val + "}";
+                result = val;
             }
 
             int myPrec = getEffectivePrec(val);
@@ -61,6 +61,60 @@ public class ExpressionHelper {
             if (needBrackets) return "\\left(" + result + "\\right)";
             return result;
         }
+    }
+
+    public static int getLatexWidth(String s) {
+        if (s == null || s.trim().isEmpty()) return 0;
+
+        int totalWidth = 0;
+        int i = 0;
+        while (i < s.length()) {
+            if (s.startsWith("\\cfrac{", i)) {
+                int firstOpen = i + 6;
+                int firstClose = findMatchingBrace(s, firstOpen);
+                if (firstClose != -1) {
+                    int secondOpen = s.indexOf("{", firstClose);
+                    if (secondOpen != -1) {
+                        int secondClose = findMatchingBrace(s, secondOpen);
+                        if (secondClose != -1) {
+                            String num = s.substring(firstOpen + 1, firstClose);
+                            String den = s.substring(secondOpen + 1, secondClose);
+
+                            // 【核心修改】：分式占用的宽度取上下两层中较宽的那一个 (Max)
+                            totalWidth += Math.max(getLatexWidth(num), getLatexWidth(den));
+
+                            i = secondClose + 1;
+                            continue;
+                        }
+                    }
+                }
+            } else if (s.startsWith("\\operatorname{", i)) {
+                int open = i + 14;
+                int close = findMatchingBrace(s, open);
+                if (close != -1) {
+                    // 提取算子内容 (如 mod, base)，宽度为其实际长度
+                    totalWidth += (close - open - 1);
+                    i = close + 1;
+                    continue;
+                }
+            } else if (s.startsWith("\\left(", i) || s.startsWith("\\right)", i)) {
+                totalWidth += 1;
+                i += 7;
+            } else if (s.startsWith("\\times", i) || s.startsWith("\\cdot", i) || s.startsWith("\\div", i)) {
+                totalWidth += 1; // 运算符
+                i++;
+                while (i < s.length() && Character.isLetter(s.charAt(i))) i++;
+            } else if (s.startsWith("\\quad", i)) {
+                totalWidth += 2; // 空格
+                i += 5;
+            } else if (s.charAt(i) == '\\' || s.charAt(i) == '{' || s.charAt(i) == '}' || Character.isWhitespace(s.charAt(i))) {
+                i++; // 忽略语法控制符
+            } else {
+                totalWidth += 1; // 普通数字、算子、或 🐱
+                i++;
+            }
+        }
+        return totalWidth;
     }
 
     private static class OperatorNode implements Node {
@@ -106,13 +160,16 @@ public class ExpressionHelper {
                 if (mulMode == 0) latexOp = " \\times ";
                 else if (mulMode == 1) latexOp = " \\cdot ";
                 else {
+                    // 【核心逻辑适配】：
+                    // 如果移除 \text{}，则判断逻辑改为：只要不是以 \right) 或 \left( 包装的，即视为数字或分式
                     boolean leftIsBracket = lStr.endsWith("\\right)");
                     boolean rightIsBracket = rStr.startsWith("\\left(");
-                    // 识别 \text{..} 或 \cfrac{..}{..} 为数字
-                    boolean leftIsNum = (lStr.startsWith("\\text{") || lStr.startsWith("\\cfrac{")) && lStr.endsWith("}");
-                    boolean rightIsNum = (rStr.startsWith("\\text{") || rStr.startsWith("\\cfrac{")) && rStr.endsWith("}");
 
-                    if ((leftIsBracket && rightIsBracket) || (leftIsNum && rightIsBracket) || (leftIsBracket && rightIsNum)) {
+                    // 只要不是括号包裹，就认为是数字或分式（如 10 或 \cfrac{...}{...}）
+                    boolean leftIsNumOrFrac = !leftIsBracket;
+                    boolean rightIsNumOrFrac = !rightIsBracket;
+
+                    if ((leftIsBracket && rightIsBracket) || (leftIsNumOrFrac && rightIsBracket) || (leftIsBracket && rightIsNumOrFrac)) {
                         latexOp = " ";
                     } else {
                         latexOp = " \\cdot ";
@@ -264,9 +321,35 @@ public class ExpressionHelper {
      */
     public static int getLatexHeight(String s) {
         if (s == null || s.trim().isEmpty()) return 0;
-        // 移除装饰性的后缀 (如 mod n)，避免干扰计算
-        String mathPart = s.replaceAll("\\\\quad.*", "").trim();
-        return calculateVisualHeight(mathPart);
+
+        int maxHeight = 1; // 默认至少 1 层
+        int i = 0;
+        while (i < s.length()) {
+            if (s.startsWith("\\cfrac{", i)) {
+                int firstOpen = i + 6;
+                int firstClose = findMatchingBrace(s, firstOpen);
+                if (firstClose != -1) {
+                    int secondOpen = s.indexOf("{", firstClose);
+                    if (secondOpen != -1) {
+                        int secondClose = findMatchingBrace(s, secondOpen);
+                        if (secondClose != -1) {
+                            String num = s.substring(firstOpen + 1, firstClose);
+                            String den = s.substring(secondOpen + 1, secondClose);
+
+                            // 分式内部高度是叠加的
+                            int fractionHeight = getLatexHeight(num) + getLatexHeight(den);
+                            // 但在这一行中，总高度取最大值 (Max)
+                            maxHeight = Math.max(maxHeight, fractionHeight);
+
+                            i = secondClose + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            i++;
+        }
+        return maxHeight;
     }
 
     private static int calculateVisualHeight(String s) {

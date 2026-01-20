@@ -12,8 +12,11 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class CalculatorHelper {
 
@@ -22,6 +25,30 @@ public class CalculatorHelper {
 
     public CalculatorHelper(Activity activity) {
         this.activity = activity;
+    }
+
+
+    private Set<Character> extractAllowedOps(String input) {
+        Set<Character> ops = new HashSet<>();
+        // 匹配最后两个 # 之间的内容
+        int lastHash = input.lastIndexOf('#');
+        int prevHash = input.lastIndexOf('#', lastHash - 1);
+
+        if (lastHash != -1 && prevHash != -1 && lastHash > prevHash) {
+            String config = input.substring(prevHash + 1, lastHash).toLowerCase();
+            Set<Character> validChars = new HashSet<>(Arrays.asList('s', 'm', 'x', 'y', 'p'));
+            for (char c : config.toCharArray()) {
+                if (validChars.contains(c)) {
+                    ops.add(c); // 自动去重，且符合“仅处理首个合法字符”的逻辑
+                }
+            }
+        }
+
+        // 如果没有配置或配置为空，默认使用常规四则运算
+        if (ops.isEmpty()) {
+            ops.add('s'); ops.add('m'); ops.add('x'); ops.add('y');
+        }
+        return ops;
     }
 
     public void showCalculatorDialog() {
@@ -146,6 +173,7 @@ public class CalculatorHelper {
     }
 
     private void performCalculation(String input, boolean limit10, TextView tvResult, Integer modulus, int radix, int target) {
+        Set<Character> allowedOps = extractAllowedOps(input);
         try {
             List<Fraction> nums = parseInputString(input, modulus, radix);
             if (nums.isEmpty()) {
