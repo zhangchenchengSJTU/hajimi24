@@ -43,12 +43,13 @@ public class ExpressionHelper {
             String val = getValue(map, isStructureMode);
             String result;
 
-            // 除法模式 1: 将数字分数转换为垂直分式
+            // 1. 处理分式并将 i 替换为 \mathrm{i}
             if (divMode == 1 && !isStructureMode && val.contains("/")) {
                 String[] p = val.split("/");
-                result = "\\cfrac{" + p[0] + "}{" + p[1] + "}";
+                // 分子分母分别替换
+                result = "\\cfrac{" + p[0].replace("i", "\\mathrm{i}") + "}{" + p[1].replace("i", "\\mathrm{i}") + "}";
             } else {
-                result = val;
+                result = val.replace("i", "\\mathrm{i}");
             }
 
             int myPrec = getEffectivePrec(val);
@@ -77,25 +78,20 @@ public class ExpressionHelper {
                     if (secondOpen != -1) {
                         int secondClose = findMatchingBrace(s, secondOpen);
                         if (secondClose != -1) {
-                            String num = s.substring(firstOpen + 1, firstClose);
-                            String den = s.substring(secondOpen + 1, secondClose);
-
-                            // 【核心修改】：分式占用的宽度取上下两层中较宽的那一个 (Max)
-                            totalWidth += Math.max(getLatexWidth(num), getLatexWidth(den));
-
-                            i = secondClose + 1;
-                            continue;
+                            // 【核心逻辑】：分式占用宽度取分子分母的 Max
+                            totalWidth += Math.max(getLatexWidth(s.substring(firstOpen + 1, firstClose)),
+                                    getLatexWidth(s.substring(secondOpen + 1, secondClose)));
+                            i = secondClose + 1; continue;
                         }
                     }
                 }
-            } else if (s.startsWith("\\operatorname{", i)) {
-                int open = i + 14;
+            } else if (s.startsWith("\\mathrm{", i)) {
+                // 【新增】：统计 mathrm 内部内容的视觉宽度
+                int open = i + 7;
                 int close = findMatchingBrace(s, open);
                 if (close != -1) {
-                    // 提取算子内容 (如 mod, base)，宽度为其实际长度
-                    totalWidth += (close - open - 1);
-                    i = close + 1;
-                    continue;
+                    totalWidth += getLatexWidth(s.substring(open + 1, close));
+                    i = close + 1; continue;
                 }
             } else if (s.startsWith("\\left(", i) || s.startsWith("\\right)", i)) {
                 totalWidth += 1;

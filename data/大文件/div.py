@@ -1,12 +1,11 @@
 import os
-import re
 
-# 优先级定义
+# 优先级定义：* / 高于 + -
 PRECEDENCE = {
     '+': 1,
     '-': 1,
     '*': 2,
-    '/': 2  # 注意：这里的 / 是带空格的除法运算符 " / "
+    '/': 2  # 仅针对带空格的 " / "
 }
 
 class Node:
@@ -16,48 +15,38 @@ class Node:
         self.right = right
 
 def find_main_op(s):
-    """寻找表达式中的主运算符（优先级最低且最靠右的）"""
+    """
+    寻找表达式中的主运算符（优先级最低且最靠右的）。
+    严格识别被空格包围的运算符，如 " + ", " - ", " * ", " / "。
+    """
     count = 0
     best_op_idx = -1
     min_prec = 3
     
-    # 从右往左扫描，符合左结合律
+    # 从右往左扫描以满足左结合律
     for i in range(len(s) - 1, -1, -1):
         if s[i] == ')':
             count += 1
         elif s[i] == '(':
             count -= 1
         elif count == 0:
-            # 严格识别带空格的运算符
-            current_op = None
-            idx = -1
-            
-            if i >= 1 and i < len(s)-1:
-                if s[i-1:i+2] == " / ":
-                    current_op, idx = "/", i
-                elif s[i-1:i+2] == " * ":
-                    current_op, idx = "*", i
-                elif s[i-1:i+2] == " + ":
-                    current_op, idx = "+", i
-                elif s[i-1:i+2] == " - ":
-                    current_op, idx = "-", i
-            
-            if current_op:
-                prec = PRECEDENCE[current_op]
-                # 寻找优先级最低的（主运算符）
-                if prec < min_prec:
-                    min_prec = prec
-                    best_op_idx = idx
-                elif prec == min_prec and best_op_idx == -1:
-                    best_op_idx = idx
-                    
+            # 只有当符号前后都有空格时，才识别为运算符，从而保护 5/9 这种分数
+            if i >= 1 and i < len(s) - 1:
+                char = s[i]
+                if char in PRECEDENCE and s[i-1] == ' ' and s[i+1] == ' ':
+                    prec = PRECEDENCE[char]
+                    # 优先级更低或相等（右侧优先）作为主运算符
+                    if prec < min_prec:
+                        min_prec = prec
+                        best_op_idx = i
+                    elif prec == min_prec and best_op_idx == -1:
+                        best_op_idx = i
+                        
     return best_op_idx
 
-def parse(s):
-    """将字符串解析为树"""
+def strip_outer_parens(s):
+    """健壮地移除外层多余括号，如 ((a+b)) -> a+b """
     s = s.strip()
-    
-    # 剥离外层冗余括号
     while s.startswith('(') and s.endswith(')'):
         count = 0
         is_pair = True
@@ -71,18 +60,25 @@ def parse(s):
             s = s[1:-1].strip()
         else:
             break
-            
+    return s
+
+def parse(s):
+    """解析字符串为 AST"""
+    s = strip_outer_parens(s)
     idx = find_main_op(s)
+    
     if idx == -1:
-        return s # 原子节点
+        return s # 原子节点（数字或 5/9 这种分数）
     
     op = s[idx]
-    left = parse(s[:idx-1])
-    right = parse(s[idx+2:])
-    return Node(op, left, right)
+    # 使用切片分割，不再使用硬编码位移，防止吞字
+    left_part = s[:idx].strip()
+    right_part = s[idx+1:].strip()
+    
+    return Node(op, parse(left_part), parse(right_part))
 
 def to_str(node, parent_op=None, is_right=False):
-    """根据优先级规则转回字符串"""
+    """将 AST 还原为最简字符串"""
     if isinstance(node, str):
         return node
     
@@ -90,6 +86,7 @@ def to_str(node, parent_op=None, is_right=False):
     left_str = to_str(node.left, op, False)
     right_str = to_str(node.right, op, True)
     
+    # 核心还原逻辑
     current_expr = f"{left_str} {op} {right_str}"
     
     need_parens = False
@@ -98,9 +95,10 @@ def to_str(node, parent_op=None, is_right=False):
         c_prec = PRECEDENCE[op]
         
         if c_prec < p_prec:
+            # 子运算优先级低，需括号：a * (b + c)
             need_parens = True
         elif c_prec == p_prec:
-            # 只有当处于 减法/除法 的右侧时，同级运算才需要括号
+            # 优先级相等时，减法和除法的右侧需括号：a - (b + c), a / (b * c)
             if is_right and parent_op in ['-', '/']:
                 need_parens = True
             
@@ -110,42 +108,38 @@ def process_line(line):
     if " -> " not in line:
         return line
     
-    # 拆分前缀和表达式
-    parts = line.split(" -> ", 1)
-    prefix = parts[0]
-    expr = parts[1].strip()
-    
     try:
+        parts = line.split(" -> ", 1)
+        prefix = parts[0]
+        expr = parts[1].strip()
+        
         ast = parse(expr)
         simplified = to_str(ast)
         return f"{prefix} -> {simplified}\n"
     except Exception:
+        # 如果解析出错，保留原样，不破坏数据
         return line
 
-def run_simplification():
-    # 使用 os.walk 遍历当前目录及所有子目录
-    root_dir = '.'
-    processed_files = 0
-    
-    for root, dirs, files in os.walk(root_dir):
+def run_recursive():
+    processed = 0
+    for root, dirs, files in os.walk('.'):
         for file in files:
             if file.endswith('.txt'):
-                file_path = os.path.join(root, file)
-                print(f"正在处理: {file_path}")
-                
+                path = os.path.join(root, file)
+                print(f"正在处理: {path}")
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(path, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     
                     new_lines = [process_line(l) for l in lines]
                     
-                    with open(file_path, 'w', encoding='utf-8') as f:
+                    with open(path, 'w', encoding='utf-8') as f:
                         f.writelines(new_lines)
-                    processed_files += 1
+                    processed += 1
                 except Exception as e:
-                    print(f"无法读取文件 {file_path}: {e}")
-
-    print(f"\n处理完成！共优化了 {processed_files} 个文件。")
+                    print(f"错误 {path}: {e}")
+                    
+    print(f"\n成功化简了 {processed} 个文件。")
 
 if __name__ == "__main__":
-    run_simplification()
+    run_recursive()

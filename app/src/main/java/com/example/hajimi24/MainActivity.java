@@ -190,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 如果还没有初始化，则加载完整 HTML 模板
         if (!isWebViewInitialized) {
-            String fontSize = getFontSize(height, width);
+            String fontSize = calculateFontSize(height, width);
             String html = buildMathTemplate(content, fontSize); // 提取出来的 HTML 模板
 
             wv.getSettings().setJavaScriptEnabled(true);
@@ -210,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
             wv.loadDataWithBaseURL("file:///android_asset/mathjax/", html, "text/html", "UTF-8", null);
         } else {
             // 【核心优化】：如果已经加载过模板，直接通过 JS 更新公式，速度提升 5-10 倍
-            String fontSize = getFontSize(height, width);
+            String fontSize = calculateFontSize(height, width);
             // 对 LaTeX 字符串进行转义，防止 JS 报错
             String escapedContent = content.replace("\\", "\\\\").replace("'", "\\'");
 
@@ -220,30 +220,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 提取字号逻辑，方便复用
-    private String getFontSize(int height, int width) {
-        // 1. 先根据高度决定基础字号（原有的逻辑）
-        float baseSize;
-        if (height <= 2) baseSize = 125f;
-        else if (height == 3) baseSize = 105f;
-        else if (height == 4) baseSize = 88f;
-        else if (height == 5) baseSize = 75f;
-        else baseSize = 65f;
+    private String calculateFontSize(int h, int w) {
+        // 设定标准阈值：高度超过 2 层开始收缩，宽度超过 16 字符开始收缩
+        float shrinkH = (h <= 2) ? 1.0f : h / 2.0f;
+        float shrinkW = (w <= 16) ? 1.0f : w / 16.0f;
 
-        // 2. 根据宽度进行二次缩放
-        // 设定一个阈值，例如宽度超过 18 个单位就开始收缩
-        int widthThreshold = 18;
-        if (width > widthThreshold) {
-            float widthFactor = (float) widthThreshold / width;
-            // 缩放系数不要太夸张，保留一个最小值
-            baseSize *= Math.max(widthFactor, 0.5f);
-        }
+        // 【核心修改】：取两个方向中缩放倍率最大的 (Max)，确保长公式或高公式都能塞进屏幕
+        float finalShrink = Math.max(shrinkH, shrinkW);
 
-        // 3. 限制字号下限，防止看不清
-        if (baseSize < 45f) baseSize = 45f;
+        // 基础最大字号为 125%
+        float size = 125.0f / finalShrink;
 
-        return String.format("%.0f%%", baseSize);
+        // 限制最小字号为 50% 防止看不清
+        if (size < 50f) size = 50f;
+
+        return String.format("%.0f%%", size);
     }
-
     private void adjustWebViewContainerHeight(WebView wv, int formulaHeight) {
         float density = getResources().getDisplayMetrics().density;
         int baseHeightDp = 100;
