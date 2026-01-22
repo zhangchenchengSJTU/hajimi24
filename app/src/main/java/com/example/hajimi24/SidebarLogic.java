@@ -640,6 +640,12 @@ public class SidebarLogic {
         });
         layout.addView(sb);
 
+        // 新增：括号模式开关
+        final androidx.appcompat.widget.SwitchCompat swBrackets = new androidx.appcompat.widget.SwitchCompat(activity);
+        swBrackets.setText("启用括号模式 (使用 wd*_b.txt)");
+        swBrackets.setPadding(0, 20, 0, 20);
+        layout.addView(swBrackets);
+
         // 3. 游戏说明
         TextView tvDesc = new TextView(activity);
         tvDesc.setText("\n【游戏说明】\n" +
@@ -657,11 +663,11 @@ public class SidebarLogic {
         builder.setView(layout);
         builder.setPositiveButton("开始挑战", (d, w) -> {
             int length = sb.getProgress() + 5;
-            // 启动 Wordle 游戏界面
-            new Wordle(activity, length).show();
+            boolean useBrackets = swBrackets.isChecked();
+            // 传入新参数
+            new Wordle(activity, length, useBrackets).show();
         });
         builder.setNegativeButton("取消", null);
-
         builder.create().show();
     }
 
