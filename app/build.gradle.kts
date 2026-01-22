@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "2.2"
+        versionName = "2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -46,6 +46,7 @@ dependencies {
     androidTestImplementation(libs.espresso.core)
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0") // 请检查最新版本
 }
+
 tasks.register("generateFloatLayouts") {
     group = "custom"
     doLast {
@@ -60,7 +61,7 @@ tasks.register("generateFloatLayouts") {
 
                 angles.forEach { angle ->
                     var content = originalContent
-                    // 1. 仅给 Button 注入旋转，WebView 保持 0 度（靠 CSS 旋转内部文字）
+                    // 1. 仅给 Button 注入旋转
                     content = content.replace(Regex("""<Button(\s+)""")) {
                         "<Button android:rotation=\"$angle\"${it.groupValues[1]}"
                     }
@@ -68,7 +69,7 @@ tasks.register("generateFloatLayouts") {
                     if (angle == 90 || angle == 270) {
                         content = content.replace("android:orientation=\"vertical\"", "android:orientation=\"horizontal\"")
 
-                        // 2. 交换 GridLayout 行列 (处理 8 按钮的 4x2 -> 2x4)
+                        // 2. 交换 GridLayout 行列
                         val colRegex = Regex("""android:columnCount="(\d+)"""")
                         val rowRegex = Regex("""android:rowCount="(\d+)"""")
                         val cols = colRegex.find(content)?.groupValues?.get(1) ?: "1"
@@ -99,7 +100,25 @@ tasks.register("generateFloatLayouts") {
                         }
                         content = lines.joinToString("\n")
                     }
-                    File(resPath, "${base}_${angle}.xml").writeText(content)
+
+                    // --- 修改部分开始 ---
+                    val targetFile = File(resPath, "${base}_${angle}.xml")
+
+                    // 检查文件是否存在，如果存在则读取旧内容进行比对
+                    val shouldUpdate = if (targetFile.exists()) {
+                        targetFile.readText() != content
+                    } else {
+                        true
+                    }
+
+                    if (shouldUpdate) {
+                        targetFile.writeText(content)
+                        println("Updated: ${targetFile.name}")
+                    } else {
+                        // 内容一致，跳过写入以避免触发系统的文件变更监听（如 Android Studio 的热重载或索引刷新）
+                        println("Skipped (No changes): ${targetFile.name}")
+                    }
+                    // --- 修改部分结束 ---
                 }
             }
         }

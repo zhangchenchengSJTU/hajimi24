@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121213"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- 标题栏 -->
+    <!-- 在标题 TextView 增加 id -->
+    <TextView
+        android:id="@+id/wordle_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="MATH WORDLE"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+
+    <!-- 5x6 游戏网格容器 -->
+    <GridLayout
+        android:id="@+id/wordle_grid"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="30dp"
+        android:columnCount="5"
+        android:rowCount="6">
+        <!-- 注意：原生 GridLayout 不需要 app: 前缀，直接用 android:columnCount -->
+    </GridLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 虚拟键盘容器 -->
+    <LinearLayout
+        android:id="@+id/keyboard_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingBottom="20dp" />
+
+    <!-- 返回按钮 -->
+    <Button
+        android:id="@+id/btn_close_wordle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="#3A3A3C"
+        android:text="返回主界面"
+        android:textColor="#FFFFFF" />
+
+</LinearLayout>

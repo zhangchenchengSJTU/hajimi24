@@ -513,6 +513,13 @@ public class SidebarLogic {
             int id = item.getItemId();
             String title = item.getTitle().toString();
 
+            if (id == 8000) { // Math Wordle 核心入口
+                drawerLayout.closeDrawer(GravityCompat.START);
+                // 延迟弹出，确保侧边栏完全收回
+                new Handler(Looper.getMainLooper()).postDelayed(this::showWordleConfigDialog, 300);
+                return true;
+            }
+
             if (id == 2000) { // 在线题库
                 isExploringLocal = false;
                 isExploringDocs = false; // [关键修复]：重置文档标记
@@ -603,10 +610,69 @@ public class SidebarLogic {
         });
     }
 
+    private void showWordleConfigDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("🔡 Math Wordle 配置");
+
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(70, 40, 70, 40);
+
+        // 1. 长度选择标题
+        final TextView tvLen = new TextView(activity);
+        tvLen.setText("选择表达式长度: 7");
+        tvLen.setTextSize(16);
+        tvLen.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvLen.setPadding(0, 10, 0, 20);
+        layout.addView(tvLen);
+
+        // 2. 滑块 (SeekBar)
+        final android.widget.SeekBar sb = new android.widget.SeekBar(activity);
+        sb.setMax(6); // 范围 0-6，对应长度 5-11
+        sb.setProgress(2); // 默认选 7
+        sb.setPadding(20, 20, 20, 40);
+        sb.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
+                tvLen.setText("选择表达式长度: " + (p + 5));
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) {}
+        });
+        layout.addView(sb);
+
+        // 3. 游戏说明
+        TextView tvDesc = new TextView(activity);
+        tvDesc.setText("\n【游戏说明】\n" +
+                "1. 输入一个算式，使结果等于 24。\n" +
+                "2. 算式支持数字(1-13)和运算符(+-*/)。\n" +
+                "3. 注意：本关卡禁止使用括号。\n" +
+                "4. 🟩 绿色：字符正确且位置正确。\n" +
+                "5. 🟨 黄色：存在该字符但位置错误。\n" +
+                "6. ⬛ 灰色：目标算式中不含该字符。");
+        tvDesc.setTextSize(14);
+        tvDesc.setLineSpacing(1.2f, 1.2f);
+        tvDesc.setTextColor(android.graphics.Color.GRAY);
+        layout.addView(tvDesc);
+
+        builder.setView(layout);
+        builder.setPositiveButton("开始挑战", (d, w) -> {
+            int length = sb.getProgress() + 5;
+            // 启动 Wordle 游戏界面
+            new Wordle(activity, length).show();
+        });
+        builder.setNegativeButton("取消", null);
+
+        builder.create().show();
+    }
+
     private void refreshMenu() {
         Menu menu = navigationView.getMenu();
         menu.clear();
-
+        // --- 第零组：快速开始 ---
+        SubMenu randomGroup = menu.addSubMenu(getStyledTitle("随机模式 / RANDOM"));
+        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣ 随机休闲 (3数)");
+        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣ 随机休闲 (4数)");
+        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣ 随机休闲 (5数)");
         // --- 第一组：资源中心 ---
         SubMenu problemGroup = menu.addSubMenu(getStyledTitle("资源管理 / DATABASE"));
         problemGroup.add(Menu.NONE, 2000, Menu.NONE, "🌐  在线题库");
@@ -624,12 +690,9 @@ public class SidebarLogic {
         settingsGroup.add(Menu.NONE, 777, Menu.NONE, "⚙️  游戏模式设定");
         settingsGroup.add(Menu.NONE, 666, Menu.NONE, "🧮  24点计算器");
         settingsGroup.add(Menu.NONE, 555, Menu.NONE, "💲  LaTeX 显示设置");
-
-        // --- 第四组：快速开始 ---
-        SubMenu randomGroup = menu.addSubMenu(getStyledTitle("随机模式 / RANDOM"));
-        randomGroup.add(Menu.NONE, 103, Menu.NONE, "3️⃣ 随机休闲 (3数)");
-        randomGroup.add(Menu.NONE, 104, Menu.NONE, "4️⃣ 随机休闲 (4数)");
-        randomGroup.add(Menu.NONE, 105, Menu.NONE, "5️⃣ 随机休闲 (5数)");
+        // --- 新增：第四组：小游戏 ---
+        SubMenu gameGroup = menu.addSubMenu(getStyledTitle("趣味中心 / MINI GAMES"));
+        gameGroup.add(Menu.NONE, 8000, Menu.NONE, "🔡  Math Wordle (24点版)");
     }
 
     /**

@@ -241,7 +241,6 @@ public class MainActivity extends AppCompatActivity {
         int baseHeightDp = 100;
         int extraHeightPerUnit = 32;
 
-        // 1. 先计算出临时的高度
         int calculatedHeight;
         if (formulaHeight <= 2) {
             calculatedHeight = baseHeightDp;
@@ -249,20 +248,32 @@ public class MainActivity extends AppCompatActivity {
             calculatedHeight = baseHeightDp + (formulaHeight - 2) * extraHeightPerUnit;
         }
 
-        // 2. 【关键修复】：定义一个全新的 final 变量，并赋予最终值（包括 Math.min 限制）
-        // 这样这个变量在初始化后就不会再变，符合 Lambda 的要求
         final int finalTotalHeight = Math.min(calculatedHeight, 300);
 
-        // 3. 在 Lambda 中引用这个 final 变量
         wv.post(() -> {
-            android.view.ViewGroup.LayoutParams params = wv.getLayoutParams();
+            // 获取布局参数，强制转换为 ConstraintLayout.LayoutParams
+            androidx.constraintlayout.widget.ConstraintLayout.LayoutParams params =
+                    (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) wv.getLayoutParams();
+
             if (params != null) {
-                // 使用 finalTotalHeight
                 params.height = (int) (finalTotalHeight * density);
+
+                // 【核心修改】：处理横屏偏移
+                if (params != null) {
+                    // 仅在代码中控制高度（因为公式层数是动态的）
+                    params.height = (int) (finalTotalHeight * density);
+
+                    // 【核心删除】：不要在这里写 params.horizontalBias = 0.35f;
+                    // 删掉这部分判断逻辑，由布局文件决定水平位置
+
+                    wv.setLayoutParams(params);
+                }
+
                 wv.setLayoutParams(params);
             }
         });
     }
+
 
     private String buildMathTemplate(String content, String fontSize) {
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
@@ -346,6 +357,13 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences("AppConfig", MODE_PRIVATE);
         int themeMode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         AppCompatDelegate.setDefaultNightMode(themeMode);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+            // 允许内容延伸到刘海区域
+            lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(lp);
+        }
+
         super.onCreate(savedInstanceState);
 
         // --- 核心修复 1：在加载布局前，彻底锁定全屏与透明状态栏 ---
@@ -709,6 +727,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        isWebViewInitialized = false;
+        lastShownType = "";
 
         boolean wasRunning = gameTimer != null;
 
@@ -1196,5 +1216,4 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
 }
