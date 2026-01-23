@@ -47,12 +47,5 @@
         android:paddingBottom="20dp" />
 
     <!-- 返回按钮 -->
-    <Button
-        android:id="@+id/btn_close_wordle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:backgroundTint="#3A3A3C"
-        android:text="返回主界面"
-        android:textColor="#FFFFFF" />
 
 </LinearLayout>

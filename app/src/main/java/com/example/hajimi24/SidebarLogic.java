@@ -610,6 +610,7 @@ public class SidebarLogic {
         });
     }
 
+
     private void showWordleConfigDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("🔡 Math Wordle 配置");
@@ -618,58 +619,51 @@ public class SidebarLogic {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(70, 40, 70, 40);
 
-        // 1. 长度选择标题
+        // 1. 长度滑块
         final TextView tvLen = new TextView(activity);
-        tvLen.setText("选择表达式长度: 7");
-        tvLen.setTextSize(16);
-        tvLen.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvLen.setPadding(0, 10, 0, 20);
+        tvLen.setText("表达式长度: 7");
+        tvLen.setPadding(0, 10, 0, 10);
         layout.addView(tvLen);
 
-        // 2. 滑块 (SeekBar)
         final android.widget.SeekBar sb = new android.widget.SeekBar(activity);
-        sb.setMax(6); // 范围 0-6，对应长度 5-11
-        sb.setProgress(2); // 默认选 7
-        sb.setPadding(20, 20, 20, 40);
+        sb.setMax(7); sb.setProgress(2);
         sb.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) {
-                tvLen.setText("选择表达式长度: " + (p + 5));
-            }
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean b) { tvLen.setText("表达式长度: " + (p + 5)); }
             @Override public void onStartTrackingTouch(android.widget.SeekBar s) {}
             @Override public void onStopTrackingTouch(android.widget.SeekBar s) {}
         });
         layout.addView(sb);
 
-        // 新增：括号模式开关
+        // 2. 括号模式开关
         final androidx.appcompat.widget.SwitchCompat swBrackets = new androidx.appcompat.widget.SwitchCompat(activity);
-        swBrackets.setText("启用括号模式 (使用 wd*_b.txt)");
-        swBrackets.setPadding(0, 20, 0, 20);
+        swBrackets.setText("启用括号模式");
         layout.addView(swBrackets);
 
-        // 3. 游戏说明
-        TextView tvDesc = new TextView(activity);
-        tvDesc.setText("\n【游戏说明】\n" +
-                "1. 输入一个算式，使结果等于 24。\n" +
-                "2. 算式支持数字(1-13)和运算符(+-*/)。\n" +
-                "3. 注意：本关卡禁止使用括号。\n" +
-                "4. 🟩 绿色：字符正确且位置正确。\n" +
-                "5. 🟨 黄色：存在该字符但位置错误。\n" +
-                "6. ⬛ 灰色：目标算式中不含该字符。");
-        tvDesc.setTextSize(14);
-        tvDesc.setLineSpacing(1.2f, 1.2f);
-        tvDesc.setTextColor(android.graphics.Color.GRAY);
-        layout.addView(tvDesc);
-
-        builder.setView(layout);
-        builder.setPositiveButton("开始挑战", (d, w) -> {
-            int length = sb.getProgress() + 5;
-            boolean useBrackets = swBrackets.isChecked();
-            // 传入新参数
-            new Wordle(activity, length, useBrackets).show();
+        // 3. 导入按钮
+        Button btnImport = new Button(activity);
+        btnImport.setText("📥 导入题目代码");
+        btnImport.setOnClickListener(v -> {
+            EditText et = new EditText(activity);
+            et.setHint("粘贴包含 #代码# 的信息");
+            new AlertDialog.Builder(activity).setTitle("导入题目").setView(et)
+                    .setPositiveButton("解密加载", (d, w) -> {
+                        String input = et.getText().toString();
+                        String code = input.contains("#") ? input.substring(input.indexOf("#")+1, input.lastIndexOf("#")) : input;
+                        String expr = Wordle.decryptRSA(code);
+                        if (expr != null) {
+                            Wordle game = new Wordle(activity, expr.length(), expr.contains("("), expr);
+                            if (!game.isInvalid(expr) && Math.abs(game.evaluate(expr)-24.0)<0.001) game.show();
+                            else Toast.makeText(activity, "无效题目", Toast.LENGTH_SHORT).show();
+                        } else Toast.makeText(activity, "解密失败", Toast.LENGTH_SHORT).show();
+                    }).show();
         });
-        builder.setNegativeButton("取消", null);
-        builder.create().show();
+        layout.addView(btnImport);
+
+        builder.setView(layout).setPositiveButton("开始挑战", (d, w) -> {
+            new Wordle(activity, sb.getProgress() + 5, swBrackets.isChecked(), null).show();
+        }).show();
     }
+
 
     private void refreshMenu() {
         Menu menu = navigationView.getMenu();
