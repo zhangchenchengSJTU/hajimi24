@@ -1,17 +1,38 @@
 *.iml
 .gradle
-/local.properties
+local.properties
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/deviceManager.xml
+/.idea/deploymentTargetSelector.xml
+/.idea/appInsightsSettings.xml
+/.idea/studiobot.xml
+/.idea/material_theme_project_new.xml
+/.idea/runConfigurations.xml
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 .tmp.drivedownload
 .tmp.driveupload
+
+# Signing secrets - never commit these
+*.jks
+*.keystore
+keystore.properties
+
+# Build outputs
+app/release/
+
+# Kotlin / JVM
+.kotlin/
+*.hprof
+
+# Python (data/ scripts)
+__pycache__/
+*.pyc
