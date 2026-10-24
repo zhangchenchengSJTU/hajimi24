@@ -13,7 +13,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,6 +26,15 @@ public class ProblemRepository {
     private static final String GITHUB_RAW_BASE = "https://raw.githubusercontent.com/zhangchenchengSJTU/hajimi24/Stable/";
 
     private Context context;
+
+    // ==========================================
+    //  紧凑格式 (data_compact) 解码支持
+    //  Wordle 式编码: rep.dict(BPE) + 差分前缀 + 文件头
+    // ==========================================
+    private static final String REP_DICT_PATH = "data/rep.dict";
+    private final Map<Character, String> repDict = new HashMap<>();
+    private volatile boolean repDictLoaded = false;
+    private volatile boolean repDictRefreshed = false;
 
     public ProblemRepository(Context context) {
         this.context = context;
@@ -85,6 +97,143 @@ public class ProblemRepository {
         }
         return totalFiles + " 项";
     }
+
+    /** 差分前缀长度标记: ASCII 33..126 去掉 '#' (35) 后的序号 */
+    private static int compactMarkerIndex(char c) {
+        return c < '#' ? c - 33 : c - 34;
+    }
+
+    private String readAllText(InputStream is) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = br.readLine()) != null) sb.append(line).append("\n");
+        br.close();
+        return sb.toString();
+    }
+
+    /**
+     * 解析 rep.dict：无分隔符定长格式，每 3 字符一条
+     * (占位符 + 两字符原文)，例如 "G /H -,I (..."。
+     */
+    private void parseRepDict(String text) {
+        repDict.clear();
+        String s = text.replace("\r", "").replace("\n", "").trim();
+        for (int i = 0; i + 3 <= s.length(); i += 3) {
+            char key = s.charAt(i);
+            repDict.put(key, s.substring(i + 1, i + 3));
+        }
+    }
+
+    /** 只从本地/内置资源加载 rep.dict（不联网，可在 UI 线程调用） */
+    private void loadRepDictLocal() throws IOException {
+        if (repDictLoaded) return;
+        InputStream is = getFileInputStream(REP_DICT_PATH);
+        if (is != null) {
+            parseRepDict(readAllText(is));
+            repDictLoaded = true;
+        }
+    }
+
+    /** 联网确保 rep.dict 可用（仅后台线程调用） */
+    private void ensureRepDictDownloaded() {
+        if (repDictLoaded) return;
+        try {
+            String content = downloadString(GITHUB_RAW_BASE + REP_DICT_PATH);
+            if (content != null) {
+                saveFileToInternalStorage(REP_DICT_PATH, content);
+                parseRepDict(content);
+                repDictLoaded = true;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 每次会话至少联网刷新一次 rep.dict，保证字典与云端题库同步 */
+    private void refreshRepDictOnce() {
+        if (repDictRefreshed) return;
+        repDictRefreshed = true;
+        try {
+            String content = downloadString(GITHUB_RAW_BASE + REP_DICT_PATH);
+            if (content != null) {
+                saveFileToInternalStorage(REP_DICT_PATH, content);
+                parseRepDict(content);
+                repDictLoaded = true;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 紧凑格式识别：旧格式行以 '[' 开头，新格式以差分标记或 '#' 开头 */
+    private boolean isCompactFormat(String content) {
+        for (String line : content.split("\n")) {
+            String s = line.trim();
+            if (s.isEmpty()) continue;
+            return !s.startsWith("[");
+        }
+        return false;
+    }
+
+    /**
+     * 紧凑格式 -> 旧格式行列表（['a', 'b'] -> expr [mod N]）。
+     * 处理顺序：BPE 展开 -> 按文件头切分 -> 差分前缀逐行还原。
+     *
+     * @param allowDownload 允许联网获取 rep.dict（仅在后台线程传 true）
+     */
+    private List<String> decodeCompactToOldLines(String content, boolean allowDownload) {
+        if (!repDictLoaded) {
+            try {
+                loadRepDictLocal();
+            } catch (IOException ignored) {}
+        }
+        if (!repDictLoaded && allowDownload) ensureRepDictDownloaded();
+        if (repDict.isEmpty()) return new ArrayList<>();
+
+        // 1. BPE 展开
+        StringBuilder sb = new StringBuilder(content.length() * 2);
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            String rep = repDict.get(c);
+            sb.append(rep != null ? rep : c);
+        }
+
+        // 2. 差分前缀解码 + 还原旧格式行
+        List<String> result = new ArrayList<>();
+        String prev = "";
+        String mode = ""; // "mod 37" / "base 5" / ""
+        for (String line : sb.toString().split("\n")) {
+            String s = line.trim();
+            if (s.isEmpty()) continue;
+            if (s.startsWith("#")) {
+                mode = s.substring(1).trim();
+                prev = "";
+                continue;
+            }
+            int k = compactMarkerIndex(s.charAt(0));
+            if (k < 0) k = 0;
+            if (k > prev.length()) k = prev.length();
+            String cur = prev.substring(0, k) + s.substring(1);
+
+            int colon = cur.indexOf(':');
+            if (colon <= 0) continue; // 防御：跳过异常行
+            String[] nums = cur.substring(0, colon).split(",");
+            String expr = cur.substring(colon + 1);
+
+            StringBuilder lineSb = new StringBuilder("['");
+            for (int i = 0; i < nums.length; i++) {
+                if (i > 0) lineSb.append("', '");
+                lineSb.append(nums[i]);
+            }
+            lineSb.append("'] -> ").append(expr);
+            if (!mode.isEmpty()) lineSb.append(" ").append(mode);
+            result.add(lineSb.toString());
+            prev = cur;
+        }
+        return result;
+    }
+
     public int getLocalFileLineCount(String fileName) {
         File file = new File(context.getFilesDir(), fileName);
         if (!file.exists()) return 0;
@@ -120,6 +269,7 @@ public class ProblemRepository {
 
                 // --- 新增：保存到本地 ---
                 saveFileToInternalStorage(filePath, content);
+                if (isCompactFormat(content)) refreshRepDictOnce();
                 // -----------------------
 
                 List<Problem> problems = parseContentToProblems(content, filePath, settings);
@@ -201,7 +351,12 @@ public class ProblemRepository {
 
     private List<Problem> parseContentToProblems(String content, String fileName, GameModeSettings settings) {
         List<Problem> list = new ArrayList<>();
-        String[] lines = content.split("\n");
+        List<String> lines;
+        if (isCompactFormat(content)) {
+            lines = decodeCompactToOldLines(content, true);
+        } else {
+            lines = Arrays.asList(content.split("\n"));
+        }
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -291,9 +446,14 @@ public class ProblemRepository {
         InputStream is = getFileInputStream(fileName);
         if (is == null) throw new Exception("File not found: " + fileName);
 
-        BufferedReader br = new BufferedReader(new InputStreamReader(is));
-        String line;
-        while ((line = br.readLine()) != null) {
+        String content = readAllText(is);
+        List<String> lines;
+        if (isCompactFormat(content)) {
+            lines = decodeCompactToOldLines(content, false);
+        } else {
+            lines = Arrays.asList(content.split("\n"));
+        }
+        for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
 
@@ -304,7 +464,6 @@ public class ProblemRepository {
             Problem p = parseLineToProblem(line);
             if (p != null) problems.add(p);
         }
-        br.close();
         return problems;
     }
 
@@ -561,6 +720,7 @@ public class ProblemRepository {
             if (content != null) {
                 saveFileToInternalStorage(path, content);
                 saveLocalFileSHA(path, sha); // 保存版本标记
+                if (isCompactFormat(content)) refreshRepDictOnce();
             }
         } catch (Exception e) { e.printStackTrace(); }
     }
